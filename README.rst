@@ -18,22 +18,22 @@ engine powering `Quantopian <https://www.quantopian.com>`_ -- a free,
 community-centered, hosted platform for building and executing trading
 strategies.
 
-- `Join our community! <https://groups.google.com/forum/#!forum/zipline>`_
+- `Join our Community! <https://groups.google.com/forum/#!forum/zipline>`_
 - `Documentation <http://www.zipline.io>`_
-- Want to contribute? See our `development guidelines <http://zipline.io/development-guidelines.html>`_
+- Want to Contribute? See our `Development Guidelines <http://zipline.io/development-guidelines.html>`_
 
 Features
 ========
 
-- Ease of use: Zipline tries to get out of your way so that you can
+- **Ease of use:** Zipline tries to get out of your way so that you can
   focus on algorithm development. See below for a code example.
-- Zipline comes "batteries included" as many common statistics like
+- **"Batteries included":** many common statistics like
   moving average and linear regression can be readily accessed from
   within a user-written algorithm.
-- Input of historical data and output of performance statistics are
+- **PyData integration:** Input of historical data and output of performance statistics are
   based on Pandas DataFrames to integrate nicely into the existing
-  PyData eco-system.
-- Statistic and machine learning libraries like matplotlib, scipy,
+  PyData ecosystem.
+- **Statistics and Machine Learning libraries:** matplotlib, scipy,
   statsmodels, and sklearn support development, analysis, and
   visualization of state-of-the-art trading systems.
 
