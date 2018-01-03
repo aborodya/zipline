@@ -139,15 +139,15 @@ The following code implements a simple dual moving average algorithm.
                long_mavg=long_mavg)
 
 
-You can then run this algorithm using the Zipline CLI. From the command
-line, run:
+You can then run this algorithm using the Zipline CLI; you'll need a `Quandl <https://www.quandl.com/>`__ API key for default data bundle.
+Once you have you key, rom the command line, run:
 
 .. code:: bash
 
-    $ zipline ingest
-    $ zipline run -f dual_moving_average.py --start 2011-1-1 --end 2012-1-1 -o dma.pickle
+    $ QUANDL_API_KEY=<yourkey> zipline ingest -b quandl
+    $ zipline run -f dual_moving_average.py --start 2014-1-1 --end 2018-1-1 -o dma.pickle
 
-This will download the AAPL price data from `quantopian-quandl` in the
+This will download the AAPL price data from `quandl` in the
 specified time range and stream it through the algorithm and save the
 resulting performance dataframe to dma.pickle which you can then load
 and analyze from within Python.
