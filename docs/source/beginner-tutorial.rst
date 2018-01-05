@@ -101,7 +101,7 @@ interfaces: A command-line interface, ``IPython Notebook`` magic, and
 
 Ingesting Data
 ^^^^^^^^^^^^^^
-If you haven't ingested the data, you'll need a `Quandl <https://www.quandl.com/>`__ API key to
+If you haven't ingested the data, you'll need a `Quandl <https://docs.quandl.com/docs#section-authentication>`__ API key to
 ingest the default bundle. Then run:
 
 .. code-block:: bash
@@ -127,19 +127,19 @@ on OSX):
 
 .. parsed-literal::
 
-	 Usage: zipline run [OPTIONS]
+  Usage: zipline run [OPTIONS]
 
   Run a backtest for the given algorithm.
 
-	Options:
+  Options:
    -f, --algofile FILENAME         The file that contains the algorithm to run.
-	 -t, --algotext TEXT             The algorithm script to run.
-	 -D, --define TEXT               Define a name to be bound in the namespace
+   -t, --algotext TEXT             The algorithm script to run.
+   -D, --define TEXT               Define a name to be bound in the namespace
                                    before executing the algotext. For example
                                    '-Dname=value'. The value may be any python
                                    expression. These are evaluated in order so
                                    they may refer to previously defined names.
-	 --data-frequency [daily|minute]
+   --data-frequency [daily|minute]
                                    The data frequency of the simulation.
                                    [default: daily]
    --capital-base FLOAT            The starting capital for the simulation.
@@ -217,6 +217,8 @@ it.
     perf.head()
 
 .. raw:: html
+
+    <div style="max-height: 1000px; max-width: 1500px; overflow: auto;">
     <table border="1" class="dataframe">
     <thead>
       <tr style="text-align: right;">
@@ -469,6 +471,7 @@ it.
       </tr>
     </tbody>
     </table>
+    </div>
 
 As you can see, there is a row for each trading day, starting on the
 first business day of 2016. In the columns you can find various
@@ -552,6 +555,7 @@ space and contain the performance ``DataFrame`` we looked at above.
 
 .. raw:: html
 
+   <div style="max-height: 1000px; max-width: 1500px; overflow: auto;">
    <table border="1" class="dataframe">
     <thead>
       <tr style="text-align: right;">
@@ -803,8 +807,8 @@ space and contain the performance ``DataFrame`` we looked at above.
         <td>0.0</td>
       </tr>
     </tbody>
-  </table>
-
+   </table>
+   </div>
 
 Access to Previous Prices Using ``history``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

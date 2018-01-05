@@ -48,7 +48,7 @@ standard location that zipline can find. By default the location where ingested
 data will be written is ``$ZIPLINE_ROOT/data/<bundle>`` where by default
 ``ZIPLINE_ROOT=~/.zipline``. The ingestion step may take some time as it could
 involve downloading and processing a lot of data. You'll need a
-`Quandl <https://www.quandl.com/>`__ API key to ingest the default bundle. This can be run with:
+`Quandl <https://docs.quandl.com/docs#section-authentication>`__ API key to ingest the default bundle. This can be run with:
 
 .. code-block:: bash
 
