@@ -37,15 +37,12 @@ from collections import OrderedDict
 import numpy as np
 import logbook
 
-from zipline.assets import Future, Asset
-from zipline.utils.input_validation import expect_types
+from zipline.assets import Future
 
 log = logbook.Logger('Performance')
 
 
 class Position(object):
-
-    @expect_types(asset=Asset)
     def __init__(self, asset, amount=0, cost_basis=0.0,
                  last_sale_price=0.0, last_sale_date=None):
 
@@ -76,7 +73,6 @@ class Position(object):
             )
         }
 
-    @expect_types(asset=Asset)
     def handle_split(self, asset, ratio):
         """
         Update the position by the split ratio, and return the resulting
@@ -150,7 +146,6 @@ class Position(object):
 
         self.amount = total_shares
 
-    @expect_types(asset=Asset)
     def adjust_commission_cost_basis(self, asset, cost):
         """
         A note about cost-basis in zipline: all positions are considered

@@ -12,51 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-"""
-
-Performance Tracking
-====================
-
-    +-----------------+----------------------------------------------------+
-    | key             | value                                              |
-    +=================+====================================================+
-    | period_start    | The beginning of the period to be tracked. datetime|
-    |                 | in pytz.utc timezone. Will always be 0:00 on the   |
-    |                 | date in UTC. The fact that the time may be on the  |
-    |                 | prior day in the exchange's local time is ignored  |
-    +-----------------+----------------------------------------------------+
-    | period_end      | The end of the period to be tracked. datetime      |
-    |                 | in pytz.utc timezone. Will always be 23:59 on the  |
-    |                 | date in UTC. The fact that the time may be on the  |
-    |                 | next day in the exchange's local time is ignored   |
-    +-----------------+----------------------------------------------------+
-    | progress        | percentage of test completed                       |
-    +-----------------+----------------------------------------------------+
-    | capital_base    | The initial capital assumed for this tracker.      |
-    +-----------------+----------------------------------------------------+
-    | cumulative_perf | A dictionary representing the cumulative           |
-    |                 | performance through all the events delivered to    |
-    |                 | this tracker. For details see the comments on      |
-    |                 | :py:meth:`PerformancePeriod.to_dict`               |
-    +-----------------+----------------------------------------------------+
-    | todays_perf     | A dictionary representing the cumulative           |
-    |                 | performance through all the events delivered to    |
-    |                 | this tracker with datetime stamps between last_open|
-    |                 | and last_close. For details see the comments on    |
-    |                 | :py:meth:`PerformancePeriod.to_dict`               |
-    |                 | TODO: adding this because we calculate it. May be  |
-    |                 | overkill.                                          |
-    +-----------------+----------------------------------------------------+
-    | cumulative_risk | A dictionary representing the risk metrics         |
-    | _metrics        | calculated based on the positions aggregated       |
-    |                 | through all the events delivered to this tracker.  |
-    |                 | For details look at the comments for               |
-    |                 | :py:meth:`zipline.finance.risk.RiskMetrics.to_dict`|
-    +-----------------+----------------------------------------------------+
-
-"""
-
 from __future__ import division
 
 import logbook
@@ -330,12 +285,12 @@ class PerformanceTracker(object):
         Handles the close of the given minute in minute emission.
 
         Parameters
-        __________
+        ----------
         dt : Timestamp
             The minute that is ending
 
         Returns
-        _______
+        -------
         A minute perf packet.
         """
         self.position_tracker.sync_last_sale_prices(dt, False, data_portal)
@@ -362,12 +317,12 @@ class PerformanceTracker(object):
         as it would in handle_minute_close if it were minute emission.
 
         Parameters
-        __________
+        ----------
         dt : Timestamp
             The minute that is ending
 
         Returns
-        _______
+        -------
         A daily perf packet.
         """
         completed_session = self._current_session

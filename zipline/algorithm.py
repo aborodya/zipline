@@ -79,7 +79,6 @@ from zipline.finance.execution import (
     StopLimitOrder,
     StopOrder,
 )
-from zipline.finance.performance import PerformanceTracker
 from zipline.finance.asset_restrictions import Restrictions
 from zipline.finance.cancel_policy import NeverCancel, CancelPolicy
 from zipline.finance.asset_restrictions import (
@@ -89,6 +88,7 @@ from zipline.finance.asset_restrictions import (
 )
 from zipline.assets import Asset, Equity, Future
 from zipline.gens.tradesimulation import AlgorithmSimulator
+from zipline.finance.metrics import MetricsTracker, default_metrics
 from zipline.pipeline import Pipeline
 from zipline.pipeline.engine import (
     ExplodingPipelineEngine,
@@ -209,6 +209,8 @@ class TradingAlgorithm(object):
         in the simulation with ``get_environment``. This allows algorithms
         to conditionally execute code based on platform it is running on.
         default: 'zipline'
+    adjustment_reader : AdjustmentReader
+        The interface to the adjustments.
     """
 
     def __init__(self, *args, **kwargs):
@@ -302,7 +304,13 @@ class TradingAlgorithm(object):
                 trading_calendar=self.trading_calendar,
             )
 
-        self.perf_tracker = None
+        self.metrics_tracker = None
+        self._metrics = kwargs.pop('metrics', None)
+        if self._metrics is None:
+            self._metrics = default_metrics()
+
+        self._adjustment_reader = kwargs.pop('adjustment_reader')
+
         # Pull in the environment's new AssetFinder for quick reference
         self.asset_finder = self.trading_environment.asset_finder
 
@@ -328,12 +336,6 @@ class TradingAlgorithm(object):
         # The symbol lookup date specifies the date to use when resolving
         # symbols to sids, and can be set using set_symbol_lookup_date()
         self._symbol_lookup_date = None
-
-        self.portfolio_needs_update = True
-        self.account_needs_update = True
-        self.performance_needs_update = True
-        self._portfolio = None
-        self._account = None
 
         # If string is passed in, execute and get reference to
         # functions.
@@ -563,13 +565,21 @@ class TradingAlgorithm(object):
         if sim_params is not None:
             self.sim_params = sim_params
 
-        if self.perf_tracker is None:
+        benchmark_source = self._create_benchmark_source()
+
+        if self.metrics_tracker is None:
             # HACK: When running with the `run` method, we set perf_tracker to
             # None so that it will be overwritten here.
-            self.perf_tracker = PerformanceTracker(
-                sim_params=self.sim_params,
+            self.metrics_tracker = MetricsTracker(
                 trading_calendar=self.trading_calendar,
+                first_session=sim_params.start_session,
+                last_session=sim_params.end_session,
+                capital_base=sim_params.capital_base,
+                emission_rate=sim_params.emission_rate,
                 asset_finder=self.asset_finder,
+                adjustment_reader=self._adjustment_reader,
+                benchmark_source=benchmark_source,
+                metrics=self._metrics,
             )
 
             # Set the dt initially to the period start by forcing it to change.
@@ -584,7 +594,7 @@ class TradingAlgorithm(object):
             sim_params,
             self.data_portal,
             self._create_clock(),
-            self._create_benchmark_source(),
+            benchmark_source,
             self.restrictions,
             universe_func=self._calculate_universe
         )
@@ -710,9 +720,9 @@ class TradingAlgorithm(object):
                     **equity_readers
                 )
 
-        # Force a reset of the performance tracker, in case
+        # Force a reset of the metrics tracker, in case
         # this is a repeat run of the algorithm.
-        self.perf_tracker = None
+        self.metrics_tracker = None
 
         # Create zipline and loop through simulated_trading.
         # Each iteration returns a perf dictionary
@@ -884,21 +894,20 @@ class TradingAlgorithm(object):
             # last market minute, and this is okay from a data portal
             # perspective as we have technically not "advanced" to the
             # current dt yet.
-            self.perf_tracker.position_tracker.sync_last_sale_prices(
-                self.trading_calendar.previous_minute(
-                    dt
-                ),
-                False,
-                self.data_portal
+            self.metrics_tracker.sync_last_sale_prices(
+                self.trading_calendar.previous_minute(dt),
+                self.data_portal,
             )
-        self.perf_tracker.prepare_capital_change(is_interday)
 
         if capital_change['type'] == 'target':
             target = capital_change['value']
-            capital_change_amount = target - \
-                (self.updated_portfolio().portfolio_value -
-                 portfolio_value_adjustment)
-            self.portfolio_needs_update = True
+            capital_change_amount = (
+                target -
+                (
+                    self.porfolio.portfolio_value -
+                    portfolio_value_adjustment
+                )
+            )
 
             log.info('Processing capital change to target %s at %s. Capital '
                      'change delta is %s' % (target, dt,
@@ -914,8 +923,10 @@ class TradingAlgorithm(object):
             return
 
         self.capital_change_deltas.update({dt: capital_change_amount})
-        self.perf_tracker.process_capital_change(capital_change_amount,
-                                                 is_interday)
+        self.metrics_tracker.process_capital_change(
+            capital_change_amount,
+            is_interday,
+        )
 
         yield {
             'capital_change':
@@ -1601,32 +1612,11 @@ class TradingAlgorithm(object):
 
     @property
     def portfolio(self):
-        return self.updated_portfolio()
-
-    def updated_portfolio(self):
-        if self.portfolio_needs_update:
-            self.perf_tracker.position_tracker.sync_last_sale_prices(
-                self.datetime, self._in_before_trading_start, self.data_portal)
-            self._portfolio = \
-                self.perf_tracker.get_portfolio(self.performance_needs_update)
-            self.portfolio_needs_update = False
-            self.performance_needs_update = False
-        return self._portfolio
+        return self.metrics_tracker.portfolio
 
     @property
     def account(self):
-        return self.updated_account()
-
-    def updated_account(self):
-        if self.account_needs_update:
-            self.perf_tracker.position_tracker.sync_last_sale_prices(
-                self.datetime, self._in_before_trading_start, self.data_portal)
-            self._account = \
-                self.perf_tracker.get_account(self.performance_needs_update)
-
-            self.account_needs_update = False
-            self.performance_needs_update = False
-        return self._account
+        return self.metrics_tracker.account
 
     def set_logger(self, logger):
         self.logger = logger
@@ -1640,12 +1630,7 @@ class TradingAlgorithm(object):
         group should happen here.
         """
         self.datetime = dt
-        self.perf_tracker.set_date(dt)
         self.blotter.set_date(dt)
-
-        self.portfolio_needs_update = True
-        self.account_needs_update = True
-        self.performance_needs_update = True
 
     @api_method
     @preprocess(tz=coerce_string(pytz.timezone))

@@ -400,7 +400,7 @@ class PerformancePeriod(object):
 
     def __core_dict(self):
         pos_stats = self.position_tracker.stats()
-        period_stats = calc_period_stats(pos_stats, self.ending_cash)
+        period_stats = calculate_period_stats(pos_stats, self.ending_cash)
 
         rval = {
             'ending_value': self.ending_value,
@@ -505,7 +505,7 @@ class PerformancePeriod(object):
 
         pt = self.position_tracker
         pos_stats = pt.stats()
-        period_stats = calc_period_stats(pos_stats, self.ending_cash)
+        period_stats = calculate_period_stats(pos_stats, self.ending_cash)
 
         # If no attribute is found on the PerformancePeriod resort to the
         # following default values. If an attribute is found use the existing

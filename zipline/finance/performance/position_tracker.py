@@ -253,7 +253,7 @@ class PositionTracker(object):
         # be negative in the case of short positions.
         try:
             stock_payments = self._unpaid_stock_dividends[next_trading_day]
-        except:
+        except KeyError:
             stock_payments = []
 
         for stock_payment in stock_payments:
@@ -329,7 +329,9 @@ class PositionTracker(object):
                 positions.append(pos.to_dict())
         return positions
 
-    def sync_last_sale_prices(self, dt, handle_non_market_minutes,
+    def sync_last_sale_prices(self,
+                              dt,
+                              handle_non_market_minutes,
                               data_portal):
         if not handle_non_market_minutes:
             for asset, position in iteritems(self.positions):

@@ -22,6 +22,8 @@ from .utils.enum import enum
 from zipline._protocol import BarData  # noqa
 
 
+
+
 # Datasource type should completely determine the other fields of a
 # message with its type.
 DATASOURCE_TYPE = enum(
@@ -141,17 +143,36 @@ def asset_multiplier(asset):
 
 
 class Portfolio(object):
+    """The portfolio at a given time.
 
-    def __init__(self):
-        self.capital_used = 0.0
-        self.starting_cash = 0.0
-        self.portfolio_value = 0.0
-        self.pnl = 0.0
-        self.returns = 0.0
-        self.cash = 0.0
-        self.positions = Positions()
-        self.start_date = None
-        self.positions_value = 0.0
+    Parameters
+    ----------
+    start_date : pd.Timestamp
+        The start date for the period being recorded.
+    capital_base : float
+        The starting value for the portfolio. This will be used as the starting
+        cash, current cash, and portfolio value.
+    """
+
+    def __init__(self, start_date=None, capital_base=0.0):
+        dict_ = vars(self)
+        dict_['cash_flow'] = 0.0
+        dict_['starting_cash'] = capital_base
+        dict_['portfolio_value'] = capital_base
+        dict_['pnl'] = 0.0
+        dict_['returns'] = 0.0
+        dict_['cash'] = capital_base
+        dict_['positions'] = Positions()
+        dict_['start_date'] = start_date
+        dict_['positions_value'] = 0.0
+        dict_['positions_exposure'] = 0.0
+
+    @property
+    def capital_used(self):
+        return self.cash_flow
+
+    def __setattr__(self, attr, value):
+        raise AttributeError('cannot mutate Portfolio objects')
 
     def __repr__(self):
         return "Portfolio({0})".format(self.__dict__)
@@ -195,31 +216,35 @@ class Portfolio(object):
 
 
 class Account(object):
-    '''
+    """
     The account object tracks information about the trading account. The
     values are updated as the algorithm runs and its keys remain unchanged.
     If connected to a broker, one can update these values with the trading
     account values as reported by the broker.
-    '''
+    """
 
-    def __init__(self):
-        self.settled_cash = 0.0
-        self.accrued_interest = 0.0
-        self.buying_power = float('inf')
-        self.equity_with_loan = 0.0
-        self.total_positions_value = 0.0
-        self.total_positions_exposure = 0.0
-        self.regt_equity = 0.0
-        self.regt_margin = float('inf')
-        self.initial_margin_requirement = 0.0
-        self.maintenance_margin_requirement = 0.0
-        self.available_funds = 0.0
-        self.excess_liquidity = 0.0
-        self.cushion = 0.0
-        self.day_trades_remaining = float('inf')
-        self.leverage = 0.0
-        self.net_leverage = 0.0
-        self.net_liquidation = 0.0
+    def __init__(self, portfolio):
+        dict_ = vars(self)
+        dict_['settled_cash'] = 0.0
+        dict_['accrued_interest'] = 0.0
+        dict_['buying_power'] = float('inf')
+        dict_['equity_with_loan'] = 0.0
+        dict_['total_positions_value'] = 0.0
+        dict_['total_positions_exposure'] = 0.0
+        dict_['regt_equity'] = 0.0
+        dict_['regt_margin'] = float('inf')
+        dict_['initial_margin_requirement'] = 0.0
+        dict_['maintenance_margin_requirement'] = 0.0
+        dict_['available_funds'] = 0.0
+        dict_['excess_liquidity'] = 0.0
+        dict_['cushion'] = 0.0
+        dict_['day_trades_remaining'] = float('inf')
+        dict_['leverage'] = 0.0
+        dict_['net_leverage'] = 0.0
+        dict_['net_liquidation'] = 0.0
+
+    def __setattr__(self, attr, value):
+        raise AttributeError('cannot mutate Account objects')
 
     def __repr__(self):
         return "Account({0})".format(self.__dict__)
