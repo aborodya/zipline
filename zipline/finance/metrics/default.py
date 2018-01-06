@@ -7,6 +7,43 @@ from zipline.utils.exploding_object import ExplodingObject
 
 
 class SimpleLedgerField(object):
+    """Emit the current value of a ledger field every day.
+
+    Parameters
+    ----------
+    ledger_field : str
+        The ledger field to read.
+    packet_field : str, optional
+        The name of the field to populate in the packet. If not provided,
+        ``ledger_field`` will be used.
+    """
+    def __init__(self, ledger_field, packet_field=None):
+        self._get_ledger_field = op.attrgetter(ledger_field)
+        if packet_field is None:
+            self._packet_field = ledger_field.rsplit('.', 1)[-1]
+        else:
+            self._packet_field = packet_field
+
+    def end_of_bar(self,
+                   packet,
+                   ledger,
+                   dt,
+                   data_portal):
+        packet['minute_perf'][self._packet_field] = self._get_ledger_field(
+            ledger,
+        )
+
+    def end_of_session(self,
+                       packet,
+                       ledger,
+                       session,
+                       data_portal):
+        packet['daily_perf'][self._packet_field] = self._get_ledger_field(
+            ledger,
+        )
+
+
+class DailyLedgerField(object):
     """Keep a daily record of a field of the ledger object.
 
     Parameters
@@ -147,6 +184,15 @@ class BenchmarkReturns(object):
                             trading_calendar,
                             sessions,
                             benchmark_source):
+        if not len(sessions):
+            # a zero-session algorithm; idk what you want from me here
+            empty = pd.Series([np.nan])
+            self._daily_returns = empty
+            self._daily_cumulative_returns = empty
+            self._minute_returns = empty
+            self._minute_cumulative_returns = empty
+            return
+
         self._daily_returns = benchmark_source.daily_returns(
             sessions[0],
             sessions[-1],
@@ -160,10 +206,10 @@ class BenchmarkReturns(object):
                 'self._minute_cumulative_returns',
             )
         else:
-            open_ = trading_calendar.market_open(sessions[0])
-            close = trading_calendar.market_close(sessions[-1])
+            open_ = trading_calendar.session_open(sessions[0])
+            close = trading_calendar.session_close(sessions[-1])
             returns = benchmark_source.get_range(open_, close)
-            self._minute_returns = returns.groupby(pd.Timegrouper('D')).apply(
+            self._minute_returns = returns.groupby(pd.TimeGrouper('D')).apply(
                 lambda g: (g + 1).cumprod() - 1,
             )
             self._minute_cumulative_returns = (1 + returns).cumprod() - 1
@@ -192,7 +238,7 @@ class BenchmarkReturns(object):
 
     def end_of_simulation(self, packet, ledger):
         packet['cumulative_algorithm_returns'] = (
-            self._daily_cumulative_returns[-1]
+            self._daily_cumulative_returns.iloc[-1]
         )
         packet['daily_algorithm_returns'] = self._daily_returns.tolist()
 
@@ -278,6 +324,60 @@ class CashFlow(object):
         self._previous_cash_flow = cash_flow
 
 
+class Orders(object):
+    """Tracks daily orders.
+    """
+    def end_of_bar(self,
+                   packet,
+                   ledger,
+                   dt,
+                   data_portal):
+        packet['minute_perf']['orders'] = ledger.orders(dt)
+
+    def end_of_session(self,
+                       packet,
+                       ledger,
+                       dt,
+                       data_portal):
+        packet['daily_perf']['orders'] = ledger.orders()
+
+
+class Transactions(object):
+    """Tracks daily transactions.
+    """
+    def end_of_bar(self,
+                   packet,
+                   ledger,
+                   dt,
+                   data_portal):
+        packet['minute_perf']['transactions'] = ledger.transactions(dt)
+
+    def end_of_session(self,
+                       packet,
+                       ledger,
+                       dt,
+                       data_portal):
+        packet['daily_perf']['transactions'] = ledger.transactions()
+
+
+class Positions(object):
+    """Tracks daily positions.
+    """
+    def end_of_bar(self,
+                   packet,
+                   ledger,
+                   dt,
+                   data_portal):
+        packet['minute_perf']['positions'] = ledger.positions(dt)
+
+    def end_of_session(self,
+                       packet,
+                       ledger,
+                       dt,
+                       data_portal):
+        packet['daily_perf']['positions'] = ledger.positions()
+
+
 def default_metrics():
     """The set of default metrics.
     """
@@ -286,32 +386,36 @@ def default_metrics():
         BenchmarkReturns(),
         PNL(),
         CashFlow(),
+        Orders(),
+        Transactions(),
+
+        SimpleLedgerField('positions'),
 
         StartOfPeriodLedgerField(
             'portfolio.positions_exposure',
             'starting_exposure',
         ),
-        SimpleLedgerField('portfolio.positions_exposure', 'ending_exposure'),
+        DailyLedgerField('portfolio.positions_exposure', 'ending_exposure'),
 
         StartOfPeriodLedgerField(
             'portfolio.positions_exposure',
             'starting_value'
         ),
-        SimpleLedgerField('portfolio.positions_value', 'ending_value'),
+        DailyLedgerField('portfolio.positions_value', 'ending_value'),
 
         StartOfPeriodLedgerField('portfolio.cash', 'starting_cash'),
-        SimpleLedgerField('portfolio.cash', 'ending_cash'),
+        DailyLedgerField('portfolio.cash', 'ending_cash'),
 
         StartOfPeriodLedgerField('portfolio.portfolio_value'),
-        SimpleLedgerField('portfolio.portfolio_value'),
+        DailyLedgerField('portfolio.portfolio_value'),
 
-        SimpleLedgerField('position_tracker.stats.longs_count'),
-        SimpleLedgerField('position_tracker.stats.shorts_count'),
-        SimpleLedgerField('position_tracker.stats.long_value'),
-        SimpleLedgerField('position_tracker.stats.short_value'),
-        SimpleLedgerField('position_tracker.stats.long_exposure'),
-        SimpleLedgerField('position_tracker.stats.short_exposure'),
+        DailyLedgerField('position_tracker.stats.longs_count'),
+        DailyLedgerField('position_tracker.stats.shorts_count'),
+        DailyLedgerField('position_tracker.stats.long_value'),
+        DailyLedgerField('position_tracker.stats.short_value'),
+        DailyLedgerField('position_tracker.stats.long_exposure'),
+        DailyLedgerField('position_tracker.stats.short_exposure'),
 
-        SimpleLedgerField('account.gross_leverage'),
-        SimpleLedgerField('account.net_leverage'),
+        DailyLedgerField('account.gross_leverage'),
+        DailyLedgerField('account.net_leverage'),
     }

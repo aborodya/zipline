@@ -1400,3 +1400,7 @@ class DataPortal(object):
         if contract_sid is None:
             return None
         return self.asset_finder.retrieve_asset(contract_sid)
+
+    @property
+    def adjustment_reader(self):
+        return self._adjustment_reader

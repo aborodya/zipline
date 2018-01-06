@@ -277,7 +277,7 @@ class PositionTracker(object):
 
         return positions
 
-    def get_positions_list(self):
+    def get_position_list(self):
         positions = []
         for asset, pos in iteritems(self.positions):
             if pos.amount != 0:
@@ -422,7 +422,11 @@ class Ledger(object):
         # through ``self._dirty_portfolio``
         self.__dirty_portfolio = False
 
-        self._portfolio = zp.Portfolio(trading_sessions[0], capital_base)
+        if len(trading_sessions):
+            start = trading_sessions[0]
+        else:
+            start = None
+        self._portfolio = zp.Portfolio(start, capital_base)
 
         self.daily_returns = pd.Series(
             np.nan,
@@ -688,7 +692,7 @@ class Ledger(object):
                 for txn in by_day
             ]
 
-        return self._processed_transactions[dt]
+        return self._processed_transactions.get(dt, [])
 
     def orders(self, dt=None):
         """Retrieve the dict-form of all of the orders in a given bar or for
@@ -709,7 +713,11 @@ class Ledger(object):
             # orders by id is already flattened
             return values_as_list(self._orders_by_id)
 
-        return self._orders_by_modified[dt]
+        return self._orders_by_modified.get(dt, [])
+
+    @property
+    def positions(self):
+        return self.position_tracker.get_position_list()
 
     def _get_payout_total(self, positions):
         calculate_payout = self._calculate_payout
@@ -717,7 +725,7 @@ class Ledger(object):
         total = 0
         for asset, old_price in iteritems(self._payout_last_sale_prices):
             position = positions[asset]
-            amount = positions.amount
+            amount = position.amount
             total += calculate_payout(
                 asset.multiplier,
                 amount,

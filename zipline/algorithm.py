@@ -309,8 +309,6 @@ class TradingAlgorithm(object):
         if self._metrics is None:
             self._metrics = default_metrics()
 
-        self._adjustment_reader = kwargs.pop('adjustment_reader')
-
         # Pull in the environment's new AssetFinder for quick reference
         self.asset_finder = self.trading_environment.asset_finder
 
@@ -577,7 +575,7 @@ class TradingAlgorithm(object):
                 capital_base=sim_params.capital_base,
                 emission_rate=sim_params.emission_rate,
                 asset_finder=self.asset_finder,
-                adjustment_reader=self._adjustment_reader,
+                adjustment_reader=self.data_portal.adjustment_reader,
                 benchmark_source=benchmark_source,
                 metrics=self._metrics,
             )
@@ -904,7 +902,7 @@ class TradingAlgorithm(object):
             capital_change_amount = (
                 target -
                 (
-                    self.porfolio.portfolio_value -
+                    self.portfolio.portfolio_value -
                     portfolio_value_adjustment
                 )
             )
@@ -923,10 +921,7 @@ class TradingAlgorithm(object):
             return
 
         self.capital_change_deltas.update({dt: capital_change_amount})
-        self.metrics_tracker.process_capital_change(
-            capital_change_amount,
-            is_interday,
-        )
+        self.metrics_tracker.capital_change(capital_change_amount)
 
         yield {
             'capital_change':
@@ -1526,7 +1521,7 @@ class TradingAlgorithm(object):
         for control in self.trading_controls:
             control.validate(asset,
                              amount,
-                             self.updated_portfolio(),
+                             self.portfolio,
                              self.get_datetime(),
                              self.trading_client.current_data)
 
@@ -1794,7 +1789,7 @@ class TradingAlgorithm(object):
         asset : Asset
             The asset that this order is for.
         percent : float
-            The percentage of the porfolio value to allocate to ``asset``.
+            The percentage of the portfolio value to allocate to ``asset``.
             This is specified as a decimal, for example: 0.50 means 50%.
         limit_price : float, optional
             The limit price for the order.
@@ -1988,7 +1983,7 @@ class TradingAlgorithm(object):
         asset : Asset
             The asset that this order is for.
         target : float
-            The desired percentage of the porfolio value to allocate to
+            The desired percentage of the portfolio value to allocate to
             ``asset``. This is specified as a decimal, for example:
             0.50 means 50%.
         limit_price : float, optional
@@ -2202,8 +2197,9 @@ class TradingAlgorithm(object):
 
     def validate_account_controls(self):
         for control in self.account_controls:
-            control.validate(self.updated_portfolio(),
-                             self.updated_account(),
+            from nose.tools import set_trace;set_trace()
+            control.validate(self.portfolio,
+                             self.account,
                              self.get_datetime(),
                              self.trading_client.current_data)
 

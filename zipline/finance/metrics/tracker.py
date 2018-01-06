@@ -153,7 +153,10 @@ class MetricsTracker(object):
         self._ledger.process_commission(commission)
 
     def process_close_position(self, asset, dt, data_portal):
-        self._ledger.close_position(self, asset, dt, data_portal)
+        self._ledger.close_position(asset, dt, data_portal)
+
+    def capital_change(self, amount):
+        self._ledger.capital_change(amount)
 
     def sync_last_sale_prices(self,
                               dt,
@@ -180,7 +183,17 @@ class MetricsTracker(object):
         """
         self.sync_last_sale_prices(dt, data_portal)
 
-        packet = {}
+        packet = {
+            'period_start': self._first_session,
+            'period_end': self._last_session,
+            'capital_base': self._capital_base,
+            'minute_perf': {
+                'period_open': self._market_open,
+                'period_close': dt,
+            },
+            'cumulative_perf': {},
+            'progress': self.progress,
+        }
         self.end_of_bar(
             packet,
             self._ledger,
@@ -251,11 +264,14 @@ class MetricsTracker(object):
         if (next_session is None) or (next_session >= self._last_session):
             return packet
 
-        ledger.process_dividends(
-            next_session,
-            self._asset_finder,
-            self._adjustment_reader,
-        )
+        adjustment_reader = self._adjustment_reader
+        if adjustment_reader is not None:
+            # this is None when running with a dataframe source
+            ledger.process_dividends(
+                next_session,
+                self._asset_finder,
+                adjustment_reader,
+            )
 
         self._current_session = next_session
         (self._market_open,

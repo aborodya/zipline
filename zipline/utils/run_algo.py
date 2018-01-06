@@ -172,7 +172,6 @@ def _run(handle_data,
             data_frequency=data_frequency,
             trading_calendar=trading_calendar,
         ),
-        adjustment_reader=bundle_data.adjustment_reader,
         **{
             'initialize': initialize,
             'handle_data': handle_data,

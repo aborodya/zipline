@@ -144,10 +144,6 @@ class AlgorithmSimulator(object):
             for new_order in new_orders:
                 metrics_tracker.process_order(new_order)
 
-            algo.portfolio_needs_update = True
-            algo.account_needs_update = True
-            algo.performance_needs_update = True
-
         def once_a_day(midnight_dt, current_data=self.current_data,
                        data_portal=self.data_portal):
 
