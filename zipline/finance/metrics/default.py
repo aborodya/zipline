@@ -1,27 +1,31 @@
+import operator as op
+
 import numpy as np
 import pandas as pd
 
 from zipline.utils.exploding_object import ExplodingObject
 
 
-class SimplePortfolioField(object):
-    """Keep a daily record of a field of the
-    :class:`~zipline.protocol.Portfolio` object.
+class SimpleLedgerField(object):
+    """Keep a daily record of a field of the ledger object.
 
     Parameters
     ----------
-    portfolio_field : str
-        The portfolio field to read.
+    ledger_field : str
+        The ledger field to read.
     packet_field : str, optional
         The name of the field to populate in the packet. If not provided,
-        ``portfolio_field`` will be used.
+        ``ledger_field`` will be used.
     """
-    def __init__(self, portfolio_field, packet_field=None):
-        self._portfolio_field = self._packet_field = portfolio_field
-        if packet_field is not None:
+    def __init__(self, ledger_field, packet_field=None):
+        self._get_ledger_field = op.attrgetter(ledger_field)
+        if packet_field is None:
+            self._packet_field = ledger_field.rsplit('.', 1)[-1]
+        else:
             self._packet_field = packet_field
 
     def start_of_simulation(self,
+                            ledger,
                             emission_rate,
                             trading_calendar,
                             sessions,
@@ -33,9 +37,8 @@ class SimplePortfolioField(object):
                    ledger,
                    dt,
                    data_portal):
-        packet['minute_perf'][self._packet_field] = getattr(
-            ledger.portfolio,
-            self._portfolio_field,
+        packet['minute_perf'][self._packet_field] = self._get_ledger_field(
+            ledger,
         )
 
     def end_of_session(self,
@@ -43,10 +46,7 @@ class SimplePortfolioField(object):
                        ledger,
                        session,
                        data_portal):
-        value = getattr(
-            ledger.portfolio,
-            self._portfolio_field,
-        )
+        value = self._get_ledger_field(ledger)
         packet['daily_perf'][self._packet_field] = value
         self._daily_value[session] = value
 
@@ -54,10 +54,53 @@ class SimplePortfolioField(object):
         packet[self._packet_field] = self._daily_value.tolist()
 
 
+class StartOfPeriodLedgerField(object):
+    """Keep track of the value of a ledger field at the start of the period.
+
+    Parameters
+    ----------
+    ledger_field : str
+        The ledger field to read.
+    packet_field : str, optional
+        The name of the field to populate in the packet. If not provided,
+        ``ledger_field`` will be used.
+    """
+    def __init__(self, ledger_field, packet_field=None):
+        self._get_ledger_field = op.attrgetter(ledger_field)
+        if packet_field is None:
+            self._packet_field = ledger_field.rsplit('.', 1)[-1]
+        else:
+            self._packet_field = packet_field
+
+    def start_of_simulation(self,
+                            ledger,
+                            emission_rate,
+                            trading_calendar,
+                            sessions,
+                            benchmark_source):
+        self._previous_day = self._get_ledger_field(ledger)
+
+    def end_of_bar(self,
+                   packet,
+                   ledger,
+                   dt,
+                   data_portal):
+        packet['minute_perf'][self._packet_field] = self._previous_day
+
+    def end_of_session(self,
+                       packet,
+                       ledger,
+                       session,
+                       data_portal):
+        packet['daily_perf'][self._packet_field] = self._previous_day
+        self._previous_day = self._get_ledger_field(ledger)
+
+
 class Returns(object):
     """Tracks daily and cumulative returns for the algorithm.
     """
     def start_of_simulation(self,
+                            ledger,
                             emission_rate,
                             trading_calendar,
                             sessions,
@@ -99,6 +142,7 @@ class BenchmarkReturns(object):
     """Tracks daily and cumulative returns for the benchmark.
     """
     def start_of_simulation(self,
+                            ledger,
                             emission_rate,
                             trading_calendar,
                             sessions,
@@ -157,6 +201,7 @@ class PNL(object):
     """Tracks daily and total PNL.
     """
     def start_of_simulation(self,
+                            ledger,
                             emission_rate,
                             trading_calendar,
                             sessions,
@@ -194,14 +239,79 @@ class PNL(object):
         packet['daily_pnl'] = self._pnl.tolist()
 
 
+class CashFlow(object):
+    """Tracks daily and cumulative cash flow.
+
+    Notes
+    -----
+    For historical reasons, this field is named 'capital_used' in the packets.
+    """
+    def start_of_simulation(self,
+                            ledger,
+                            emission_rate,
+                            trading_calendar,
+                            sessions,
+                            benchmark_source):
+        self._previous_cash_flow = 0.0
+
+    def end_of_bar(self,
+                   packet,
+                   ledger,
+                   dt,
+                   data_portal):
+        cash_flow = ledger.portfolio.cash_flow
+        packet['minute_perf']['capital_used'] = (
+            self._previous_cash_flow - cash_flow
+        )
+        packet['cumulative_perf']['pnl'] = cash_flow
+
+    def end_of_session(self,
+                       packet,
+                       ledger,
+                       session,
+                       data_portal):
+        cash_flow = ledger.portfolio.cash_flow
+        packet['daily_perf']['capital_used'] = (
+            self._previous_cash_flow - cash_flow
+        )
+        packet['cumulative_perf']['cash_flow'] = cash_flow
+        self._previous_cash_flow = cash_flow
+
+
 def default_metrics():
     """The set of default metrics.
     """
     return {
         Returns(),
         BenchmarkReturns(),
-        SimplePortfolioField('positions_exposure', 'ending_exposure'),
-        SimplePortfolioField('positions_value', 'ending_value'),
-        SimplePortfolioField('portfolio_value'),
         PNL(),
+        CashFlow(),
+
+        StartOfPeriodLedgerField(
+            'portfolio.positions_exposure',
+            'starting_exposure',
+        ),
+        SimpleLedgerField('portfolio.positions_exposure', 'ending_exposure'),
+
+        StartOfPeriodLedgerField(
+            'portfolio.positions_exposure',
+            'starting_value'
+        ),
+        SimpleLedgerField('portfolio.positions_value', 'ending_value'),
+
+        StartOfPeriodLedgerField('portfolio.cash', 'starting_cash'),
+        SimpleLedgerField('portfolio.cash', 'ending_cash'),
+
+        StartOfPeriodLedgerField('portfolio.portfolio_value'),
+        SimpleLedgerField('portfolio.portfolio_value'),
+
+        SimpleLedgerField('position_tracker.stats.longs_count'),
+        SimpleLedgerField('position_tracker.stats.shorts_count'),
+        SimpleLedgerField('position_tracker.stats.long_value'),
+        SimpleLedgerField('position_tracker.stats.short_value'),
+        SimpleLedgerField('position_tracker.stats.long_exposure'),
+        SimpleLedgerField('position_tracker.stats.short_exposure'),
+
+        SimpleLedgerField('account.gross_leverage'),
+        SimpleLedgerField('account.net_leverage'),
     }

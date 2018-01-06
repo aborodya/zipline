@@ -418,8 +418,10 @@ class Ledger(object):
         a value of ``np.nan``.
     """
     def __init__(self, trading_sessions, capital_base, data_frequency):
-        # have some fields of the portfolio changed?
-        self._dirty_portfolio = False
+        # Have some fields of the portfolio changed? This should be accessed
+        # through ``self._dirty_portfolio``
+        self.__dirty_portfolio = False
+
         self._portfolio = zp.Portfolio(trading_sessions[0], capital_base)
 
         self.daily_returns = pd.Series(
@@ -430,6 +432,9 @@ class Ledger(object):
 
         # this is a component of the cache key for the account
         self._position_stats = None
+
+        # Have some fields of the account changed?
+        self._dirty_account = True
         self._account = zp.Account(self._portfolio)
 
         # The broker blotter can override some fields on the account. This is
@@ -451,6 +456,18 @@ class Ledger(object):
         # start, or when the price at execution.
         self._payout_last_sale_prices = {}
 
+    @property
+    def _dirty_portfolio(self):
+        return self.__dirty_portfolio
+
+    @_dirty_portfolio.setter
+    def _dirty_portfolio(self, value):
+        if value:
+            # marking the portfolio as dirty also marks the account as dirty
+            self.__dirty_portfolio = self._dirty_account = value
+        else:
+            self.__dirty_portfolio = value
+
     def end_of_session(self, session_label):
         """Reset the state being tracked on a per-session basis.
         """
@@ -467,6 +484,17 @@ class Ledger(object):
             1
         )
         self._previous_total_returns = current_total_returns
+
+    def sync_last_sale_prices(self,
+                              dt,
+                              data_portal,
+                              handle_non_market_minutes=False):
+        self.position_tracker.sync_last_sale_prices(
+            dt,
+            data_portal,
+            handle_non_market_minutes=handle_non_market_minutes,
+        )
+        self._portfolio_dirty = True
 
     @staticmethod
     def _calculate_execution_cash_flow(transaction):
@@ -758,7 +786,7 @@ class Ledger(object):
         return ending_cash + long_value + short_value
 
     @staticmethod
-    def calculate_leverage(exposure, net_liquidation):
+    def _calculate_leverage(exposure, net_liquidation):
         if net_liquidation != 0:
             return exposure / net_liquidation
 
@@ -811,12 +839,10 @@ class Ledger(object):
 
     @property
     def account(self):
+        account = self._account
+
         if self._dirty_account:
-            self._dirty_account = False
-
             portfolio = self.portfolio
-
-            account = self._account
             account_dict = vars(account)
 
             # If no attribute is found in the ``_account_overrides`` resort to
@@ -831,7 +857,9 @@ class Ledger(object):
             account_dict['total_positions_value'] = (
                 portfolio.portfolio_value - portfolio.cash
             )
-            account_dict['total_positions_exposure'] = portfolio.exposure
+            account_dict['total_positions_exposure'] = (
+                portfolio.positions_exposure
+            )
             account_dict['regt_equity'] = portfolio.cash
             account_dict['regt_margin'] = np.inf
             account_dict['initial_margin_requirement'] = 0.0
@@ -848,5 +876,8 @@ class Ledger(object):
 
             # apply the overrides
             account_dict.update(self._account_overrides)
+
+            # the account has been fully synced
+            self._dirty_account = False
 
         return account

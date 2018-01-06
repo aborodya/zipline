@@ -121,6 +121,7 @@ class MetricsTracker(object):
         self.progress = progress
 
         self.start_of_simulation(
+            self._ledger,
             emission_rate,
             trading_calendar,
             sessions,
@@ -158,7 +159,7 @@ class MetricsTracker(object):
                               dt,
                               data_portal,
                               handle_non_market_minutes=False):
-        self._ledger.position_tracker.sync_last_sale_prices(
+        self._ledger.sync_last_sale_prices(
             dt,
             data_portal,
             handle_non_market_minutes=handle_non_market_minutes,
