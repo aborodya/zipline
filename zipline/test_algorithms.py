@@ -75,7 +75,6 @@ import numpy as np
 
 from nose.tools import assert_raises
 
-from six.moves import range
 from six import itervalues
 
 from zipline.algorithm import TradingAlgorithm
@@ -87,8 +86,7 @@ from zipline.api import (
     sid,
 )
 from zipline.errors import UnsupportedOrderParameters
-from zipline.assets import Future, Equity
-from zipline.finance.commission import PerShare, PerTrade
+from zipline.finance.commission import PerTrade
 from zipline.finance.execution import (
     LimitOrder,
     MarketOrder,
@@ -96,7 +94,6 @@ from zipline.finance.execution import (
     StopOrder,
 )
 from zipline.finance.controls import AssetDateBounds
-from zipline.utils.math_utils import round_if_near_integer
 
 
 class TestAlgorithm(TradingAlgorithm):
@@ -216,276 +213,6 @@ class DivByZeroAlgorithm(TradingAlgorithm):
         pass
 
 
-class TooMuchProcessingAlgorithm(TradingAlgorithm):
-
-    def initialize(self, sid):
-        self.asset = self.sid(sid)
-
-    def handle_data(self, data):
-        # Unless we're running on some sort of
-        # supercomputer this will hit timeout.
-        for i in range(1000000000):
-            self.foo = i
-
-
-class TimeoutAlgorithm(TradingAlgorithm):
-
-    def initialize(self, sid):
-        self.asset = self.sid(sid)
-        self.incr = 0
-
-    def handle_data(self, data):
-        if self.incr > 4:
-            import time
-            time.sleep(100)
-        pass
-
-
-class RecordAlgorithm(TradingAlgorithm):
-    def initialize(self):
-        self.incr = 0
-
-    def handle_data(self, data):
-        self.incr += 1
-        self.record(incr=self.incr)
-        name = 'name'
-        self.record(name, self.incr)
-        record(name, self.incr, 'name2', 2, name3=self.incr)
-
-
-class TestOrderAlgorithm(TradingAlgorithm):
-    def initialize(self):
-        self.incr = 0
-
-    def handle_data(self, data):
-        if self.incr == 0:
-            assert 0 not in self.portfolio.positions
-        else:
-            assert (
-                self.portfolio.positions[0].amount ==
-                self.incr
-            ), "Orders not filled immediately."
-            assert (
-                self.portfolio.positions[0].last_sale_date ==
-                self.get_datetime()
-            ), "Orders not filled at current datetime."
-        self.incr += 1
-        self.order(self.sid(0), 1)
-
-
-class TestOrderInstantAlgorithm(TradingAlgorithm):
-    def initialize(self):
-        self.incr = 0
-        self.last_price = None
-
-    def handle_data(self, data):
-        if self.incr == 0:
-            assert 0 not in self.portfolio.positions
-        else:
-            assert (
-                self.portfolio.positions[0].amount ==
-                self.incr
-            ), "Orders not filled immediately."
-            assert (
-                self.portfolio.positions[0].last_sale_date ==
-                self.get_datetime()
-            ), "Orders not filled at current datetime."
-        self.incr += 1
-        self.order_value(self.sid(0), data.current(sid(0), "price"))
-        self.last_price = data.current(sid(0), "price")
-
-
-class TestOrderStyleForwardingAlgorithm(TradingAlgorithm):
-    """
-    Test Algorithm for verifying that ExecutionStyles are properly forwarded by
-    order API helper methods.  Pass the name of the method to be tested as a
-    string parameter to this algorithm's constructor.
-    """
-
-    def __init__(self, *args, **kwargs):
-        self.method_name = kwargs.pop('method_name')
-        super(TestOrderStyleForwardingAlgorithm, self)\
-            .__init__(*args, **kwargs)
-
-    def initialize(self):
-        self.incr = 0
-        self.last_price = None
-
-    def handle_data(self, data):
-        if self.incr == 0:
-            assert len(self.portfolio.positions.keys()) == 0
-
-            method_to_check = getattr(self, self.method_name)
-            method_to_check(self.sid(133),
-                            data.current(sid(0), "price"),
-                            style=StopLimitOrder(10, 10))
-
-            assert len(self.blotter.open_orders[self.sid(133)]) == 1
-            result = self.blotter.open_orders[self.sid(133)][0]
-            assert result.limit == 10
-            assert result.stop == 10
-
-            self.incr += 1
-
-
-class TestOrderValueAlgorithm(TradingAlgorithm):
-    def initialize(self):
-        self.incr = 0
-        self.sale_price = None
-
-    def handle_data(self, data):
-        if self.incr == 0:
-            assert 0 not in self.portfolio.positions
-        else:
-            assert (
-                self.portfolio.positions[0].amount ==
-                self.incr
-            ), "Orders not filled immediately."
-            assert (
-                self.portfolio.positions[0].last_sale_date ==
-                self.get_datetime()
-            ), "Orders not filled at current datetime."
-        self.incr += 2
-
-        multiplier = 2.
-        if isinstance(self.sid(0), Future):
-            multiplier *= self.sid(0).multiplier
-
-        self.order_value(
-            self.sid(0),
-            data.current(sid(0), "price") * multiplier
-        )
-
-
-class TestTargetAlgorithm(TradingAlgorithm):
-    def initialize(self):
-        self.set_slippage(FixedSlippage())
-        self.target_shares = 0
-        self.sale_price = None
-
-    def handle_data(self, data):
-        if self.target_shares == 0:
-            assert 0 not in self.portfolio.positions
-        else:
-            assert (
-                self.portfolio.positions[0].amount ==
-                self.target_shares
-            ), "Orders not filled immediately."
-            assert (
-                self.portfolio.positions[0].last_sale_date ==
-                self.get_datetime()
-            ), "Orders not filled at current datetime."
-        self.target_shares = 10
-        self.order_target(self.sid(0), self.target_shares)
-
-
-class TestOrderPercentAlgorithm(TradingAlgorithm):
-    def initialize(self):
-        self.set_slippage(FixedSlippage())
-        self.target_shares = 0
-        self.sale_price = None
-
-    def handle_data(self, data):
-        if self.target_shares == 0:
-            assert 0 not in self.portfolio.positions
-            self.order(self.sid(0), 10)
-            self.target_shares = 10
-            return
-        else:
-            assert (
-                self.portfolio.positions[0].amount ==
-                self.target_shares
-            ), "Orders not filled immediately."
-            assert (
-                self.portfolio.positions[0].last_sale_date ==
-                self.get_datetime()
-            ), "Orders not filled at current datetime."
-
-        self.order_percent(self.sid(0), .001)
-
-        if isinstance(self.sid(0), Equity):
-            price = data.current(sid(0), "price")
-            new_shares = (.001 * self.portfolio.portfolio_value) / price
-        elif isinstance(self.sid(0), Future):
-            new_shares = (.001 * self.portfolio.portfolio_value) / \
-                (data.current(sid(0), "price") *
-                    self.sid(0).contract_multiplier)
-
-        new_shares = int(round_if_near_integer(new_shares))
-        self.target_shares += new_shares
-
-
-class TestTargetPercentAlgorithm(TradingAlgorithm):
-    def initialize(self):
-        self.ordered = False
-        self.sale_price = None
-
-        # this makes the math easier to check
-        self.set_slippage(FixedSlippage())
-        self.set_commission(PerShare(0))
-
-    def handle_data(self, data):
-        if not self.ordered:
-            assert not self.portfolio.positions
-        else:
-            # Since you can't own fractional shares (at least in this
-            # example), we want to make sure that our target amount is
-            # no more than a share's value away from our current
-            # holdings.
-            target_value = self.portfolio.portfolio_value * 0.002
-            position_value = self.portfolio.positions[0].amount * \
-                self.sale_price
-
-            assert (
-                abs(target_value - position_value) <=
-                self.sale_price
-            ), "Orders not filled correctly"
-
-            assert (
-                self.portfolio.positions[0].last_sale_date ==
-                self.get_datetime()
-            ), "Orders not filled at current price."
-
-        self.sale_price = data.current(sid(0), "price")
-        self._order(sid(0), .002)
-        self.ordered = True
-
-    def _order(self, asset, target):
-        return self.order_target_percent(asset, target)
-
-
-class TestTargetValueAlgorithm(TradingAlgorithm):
-    def initialize(self):
-        self.set_slippage(FixedSlippage())
-        self.target_shares = 0
-        self.sale_price = None
-
-    def handle_data(self, data):
-        if self.target_shares == 0:
-            assert 0 not in self.portfolio.positions
-            self.order(self.sid(0), 10)
-            self.target_shares = 10
-            return
-        else:
-            assert (
-                self.portfolio.positions[0].amount ==
-                self.target_shares
-            ), "Orders not filled immediately."
-            assert (
-                self.portfolio.positions[0].last_sale_date ==
-                self.get_datetime()
-            ), "Orders not filled at current datetime."
-
-        self.order_target_value(self.sid(0), 20)
-        self.target_shares = np.round(20 / data.current(sid(0), "price"))
-
-        if isinstance(self.sid(0), Equity):
-            self.target_shares = np.round(20 / data.current(sid(0), "price"))
-        if isinstance(self.sid(0), Future):
-            self.target_shares = np.round(
-                20 / (data.current(sid(0), "price") * self.sid(0).multiplier))
-
-
 class FutureFlipAlgo(TestAlgorithm):
     def handle_data(self, data):
         if len(self.portfolio.positions) > 0:
@@ -577,14 +304,6 @@ class SetAssetDateBoundsAlgorithm(TradingAlgorithm):
 
     def handle_data(algo, data):
         algo.order(algo.sid(999), 1)
-
-
-class TestRegisterTransformAlgorithm(TradingAlgorithm):
-    def initialize(self, *args, **kwargs):
-        self.set_slippage(FixedSlippage())
-
-    def handle_data(self, data):
-        pass
 
 
 class AmbitiousStopLimitAlgorithm(TradingAlgorithm):
@@ -907,17 +626,6 @@ def handle_data(context, data):
     order(symbol('TEST'), 1)
 """
 
-call_order_in_init = """
-from zipline.api import (sid, order)
-
-def initialize(context):
-    order(sid(0), 10)
-    pass
-
-def handle_data(context, data):
-    pass
-"""
-
 access_portfolio_in_init = """
 def initialize(context):
     var = context.portfolio.cash
@@ -934,27 +642,6 @@ def initialize(context):
 
 def handle_data(context, data):
     pass
-"""
-
-call_all_order_methods = """
-from zipline.api import (order,
-                         order_value,
-                         order_percent,
-                         order_target,
-                         order_target_value,
-                         order_target_percent,
-                         sid)
-
-def initialize(context):
-    pass
-
-def handle_data(context, data):
-    order(sid(0), 10)
-    order_value(sid(0), 300)
-    order_percent(sid(0), .1)
-    order_target(sid(0), 100)
-    order_target_value(sid(0), 100)
-    order_target_percent(sid(0), .2)
 """
 
 record_variables = """
