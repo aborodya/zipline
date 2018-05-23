@@ -86,14 +86,12 @@ from zipline.api import (
     sid,
 )
 from zipline.errors import UnsupportedOrderParameters
-from zipline.finance.commission import PerTrade
 from zipline.finance.execution import (
     LimitOrder,
     MarketOrder,
     StopLimitOrder,
     StopOrder,
 )
-from zipline.finance.controls import AssetDateBounds
 
 
 class TestAlgorithm(TradingAlgorithm):
@@ -162,44 +160,6 @@ class NoopAlgorithm(TradingAlgorithm):
         pass
 
 
-class ExceptionAlgorithm(TradingAlgorithm):
-    """
-    Throw an exception from the method name specified in the
-    constructor.
-    """
-
-    def initialize(self, throw_from, sid):
-
-        self.throw_from = throw_from
-        self.asset = self.sid(sid)
-
-        if self.throw_from == "initialize":
-            raise Exception("Algo exception in initialize")
-        else:
-            pass
-
-    def set_portfolio(self, portfolio):
-        if self.throw_from == "set_portfolio":
-            raise Exception("Algo exception in set_portfolio")
-        else:
-            pass
-
-    def handle_data(self, data):
-        if self.throw_from == "handle_data":
-            raise Exception("Algo exception in handle_data")
-        else:
-            pass
-
-    def get_sid_filter(self):
-        if self.throw_from == "get_sid_filter":
-            raise Exception("Algo exception in get_sid_filter")
-        else:
-            return [self.asset]
-
-    def set_transact_setter(self, txn_sim_callable):
-        pass
-
-
 class DivByZeroAlgorithm(TradingAlgorithm):
 
     def initialize(self, sid):
@@ -213,154 +173,9 @@ class DivByZeroAlgorithm(TradingAlgorithm):
         pass
 
 
-class FutureFlipAlgo(TestAlgorithm):
-    def handle_data(self, data):
-        if len(self.portfolio.positions) > 0:
-            if self.portfolio.positions[self.asset.sid]["amount"] > 0:
-                self.order_target(self.asset, -self.amount)
-            else:
-                self.order_target(self.asset, 0)
-        else:
-            self.order_target(self.asset, self.amount)
-
-############################
-# AccountControl Test Algos#
-############################
-
-
-class SetMaxLeverageAlgorithm(TradingAlgorithm):
-    def initialize(self, max_leverage=None):
-        self.set_max_leverage(max_leverage=max_leverage)
-
-
-class SetMinLeverageAlgorithm(TradingAlgorithm):
-    def initialize(self, min_leverage, grace_period):
-        self.set_min_leverage(
-            min_leverage=min_leverage, grace_period=grace_period
-        )
-
-
 ############################
 # TradingControl Test Algos#
 ############################
-
-
-class SetMaxPositionSizeAlgorithm(TradingAlgorithm):
-    def initialize(self, asset=None, max_shares=None, max_notional=None):
-        self.set_slippage(FixedSlippage())
-        self.order_count = 0
-        self.set_max_position_size(asset=asset,
-                                   max_shares=max_shares,
-                                   max_notional=max_notional)
-
-
-class SetMaxOrderSizeAlgorithm(TradingAlgorithm):
-    def initialize(self, asset=None, max_shares=None, max_notional=None):
-        self.order_count = 0
-        self.set_max_order_size(asset=asset,
-                                max_shares=max_shares,
-                                max_notional=max_notional)
-
-
-class SetDoNotOrderListAlgorithm(TradingAlgorithm):
-    def initialize(self, sid=None, restricted_list=None, on_error='fail'):
-        self.order_count = 0
-        self.set_do_not_order_list(restricted_list, on_error)
-
-
-class SetAssetRestrictionsAlgorithm(TradingAlgorithm):
-    def initialize(self, sid=None, restrictions=None, on_error='fail'):
-        self.order_count = 0
-        self.set_asset_restrictions(restrictions, on_error)
-
-
-class SetMultipleAssetRestrictionsAlgorithm(TradingAlgorithm):
-    def initialize(self, restrictions1, restrictions2, on_error='fail'):
-        self.order_count = 0
-        self.set_asset_restrictions(restrictions1, on_error)
-        self.set_asset_restrictions(restrictions2, on_error)
-
-
-class SetMaxOrderCountAlgorithm(TradingAlgorithm):
-    def initialize(self, count):
-        self.order_count = 0
-        self.set_max_order_count(count)
-        self.minute_count = 0
-
-
-class SetLongOnlyAlgorithm(TradingAlgorithm):
-    def initialize(self):
-        self.order_count = 0
-        self.set_long_only()
-
-
-class SetAssetDateBoundsAlgorithm(TradingAlgorithm):
-    """
-    Algorithm that tries to order 1 share of sid 999 on every bar and has an
-    AssetDateBounds() trading control in place.
-    """
-    def initialize(self):
-        self.register_trading_control(AssetDateBounds(on_error='fail'))
-
-    def handle_data(algo, data):
-        algo.order(algo.sid(999), 1)
-
-
-class AmbitiousStopLimitAlgorithm(TradingAlgorithm):
-    """
-    Algorithm that tries to buy with extremely low stops/limits and tries to
-    sell with extremely high versions of same. Should not end up with any
-    positions for reasonable data.
-    """
-
-    def initialize(self, *args, **kwargs):
-        self.asset = self.sid(kwargs.pop('sid'))
-
-    def handle_data(self, data):
-
-        ########
-        # Buys #
-        ########
-
-        # Buy with low limit, shouldn't trigger.
-        self.order(self.asset, 100, limit_price=1)
-
-        # But with high stop, shouldn't trigger
-        self.order(self.asset, 100, stop_price=10000000)
-
-        # Buy with high limit (should trigger) but also high stop (should
-        # prevent trigger).
-        self.order(self.asset, 100, limit_price=10000000, stop_price=10000000)
-
-        # Buy with low stop (should trigger), but also low limit (should
-        # prevent trigger).
-        self.order(self.asset, 100, limit_price=1, stop_price=1)
-
-        #########
-        # Sells #
-        #########
-
-        # Sell with high limit, shouldn't trigger.
-        self.order(self.asset, -100, limit_price=1000000)
-
-        # Sell with low stop, shouldn't trigger.
-        self.order(self.asset, -100, stop_price=1)
-
-        # Sell with low limit (should trigger), but also high stop (should
-        # prevent trigger).
-        self.order(self.asset, -100, limit_price=1000000, stop_price=1000000)
-
-        # Sell with low limit (should trigger), but also low stop (should
-        # prevent trigger).
-        self.order(self.asset, -100, limit_price=1, stop_price=1)
-
-        ###################
-        # Rounding Checks #
-        ###################
-        self.order(self.asset, 100, limit_price=.00000001)
-        self.order(self.asset, -100, stop_price=.00000001)
-
-
 class SetPortfolioAlgorithm(TradingAlgorithm):
     """
     An algorithm that tries to set the portfolio directly.
@@ -436,27 +251,6 @@ class EmptyPositionsAlgorithm(TradingAlgorithm):
 
         # Should be 0 when all positions are exited.
         self.record(num_positions=len(self.portfolio.positions))
-
-
-class TestPositionWeightsAlgorithm(TradingAlgorithm):
-    """
-    An algorithm that records the weights of its portfolio holdings each day.
-    """
-    def initialize(self, sids_and_amounts, *args, **kwargs):
-        self.ordered = False
-        self.sids_and_amounts = sids_and_amounts
-        self.set_commission(us_equities=PerTrade(0), us_futures=PerTrade(0))
-        self.set_slippage(
-            us_equities=FixedSlippage(0), us_futures=FixedSlippage(0),
-        )
-
-    def handle_data(self, data):
-        if not self.ordered:
-            for s, amount in self.sids_and_amounts:
-                self.order(self.sid(s), amount)
-            self.ordered = True
-
-        self.record(position_weights=self.portfolio.current_portfolio_weights)
 
 
 class InvalidOrderAlgorithm(TradingAlgorithm):
