@@ -16,7 +16,7 @@
 """
 Tests for the zipline.assets package
 """
-from contextlib import contextmanager
+from collections import namedtuple
 from datetime import timedelta
 from functools import partial
 import os
@@ -94,44 +94,65 @@ from zipline.testing.fixtures import (
 from zipline.utils.range import range
 
 
-@contextmanager
-def build_lookup_generic_cases(asset_finder_type):
+Case = namedtuple('Case', 'finder inputs as_of country_code expected')
+
+minute = pd.Timedelta(minutes=1)
+
+
+def build_lookup_generic_cases():
     """
     Generate test cases for the type of asset finder specific by
     asset_finder_type for test_lookup_generic.
     """
-
     unique_start = pd.Timestamp('2013-01-01', tz='UTC')
     unique_end = pd.Timestamp('2014-01-01', tz='UTC')
 
-    dupe_0_start = pd.Timestamp('2013-01-01', tz='UTC')
-    dupe_0_end = dupe_0_start + timedelta(days=1)
-
-    dupe_1_start = pd.Timestamp('2013-01-03', tz='UTC')
-    dupe_1_end = dupe_1_start + timedelta(days=1)
+    dupe_old_start = pd.Timestamp('2013-01-01', tz='UTC')
+    dupe_old_end = pd.Timestamp('2013-01-02', tz='UTC')
+    dupe_new_start = pd.Timestamp('2013-01-03', tz='UTC')
+    dupe_new_end = pd.Timestamp('2013-01-03', tz='UTC')
 
     equities = pd.DataFrame.from_records(
         [
+            # These symbols are duplicated within the US, but have different
+            # lifetimes.
             {
                 'sid': 0,
-                'symbol': 'duplicated',
-                'start_date': dupe_0_start.value,
-                'end_date': dupe_0_end.value,
-                'exchange': 'TEST',
+                'symbol': 'duplicated_in_us',
+                'start_date': dupe_old_start.value,
+                'end_date': dupe_old_end.value,
+                'exchange': 'US_EXCHANGE',
             },
             {
                 'sid': 1,
-                'symbol': 'duplicated',
-                'start_date': dupe_1_start.value,
-                'end_date': dupe_1_end.value,
-                'exchange': 'TEST',
+                'symbol': 'duplicated_in_us',
+                'start_date': dupe_new_start.value,
+                'end_date': dupe_new_end.value,
+                'exchange': 'US_EXCHANGE',
             },
+            # This asset is unique.
             {
                 'sid': 2,
                 'symbol': 'unique',
                 'start_date': unique_start.value,
                 'end_date': unique_end.value,
-                'exchange': 'TEST',
+                'exchange': 'US_EXCHANGE',
+            },
+            # These assets appear with the same ticker at the same time in
+            # different countries.
+            {
+                'sid': 3,
+                'symbol': 'duplicated_globally',
+                'start_date': unique_start.value,
+                'end_date': unique_start.value,
+                'exchange': 'US_EXCHANGE',
+            },
+            {
+                'sid': 4,
+                'symbol': 'duplicated_globally',
+                'start_date': unique_start.value,
+                'end_date': unique_start.value,
+                'exchange': 'CA_EXCHANGE',
             },
         ],
         index='sid'
@@ -148,7 +169,7 @@ def build_lookup_generic_cases(asset_finder_type):
                 'start_date': unique_start.value,
                 'end_date': unique_end.value,
                 'auto_close_date': unique_end.value,
-                'exchange': 'FUT',
+                'exchange': 'US_FUT',
             },
         ],
         index='sid'
@@ -157,17 +178,30 @@ def build_lookup_generic_cases(asset_finder_type):
     root_symbols = pd.DataFrame({
         'root_symbol': ['FO'],
         'root_symbol_id': [1],
-        'exchange': ['CME'],
+        'exchange': ['US_FUT'],
     })
 
-    with tmp_assets_db(
-            equities=equities, futures=futures, root_symbols=root_symbols) \
-            as assets_db:
-        finder = asset_finder_type(assets_db)
-        dupe_0, dupe_1, unique = assets = [
-            finder.retrieve_asset(i)
-            for i in range(3)
-        ]
+    exchanges = pd.DataFrame.from_records([
+        {'exchange': 'US_EXCHANGE', 'country_code': 'US'},
+        {'exchange': 'CA_EXCHANGE', 'country_code': 'CA'},
+        {'exchange': 'US_FUT', 'country_code': 'US'},
+    ])
+
+    temp_db = tmp_assets_db(
+        equities=equities,
+        futures=futures,
+        root_symbols=root_symbols,
+        exchanges=exchanges,
+    )
+
+    with temp_db as assets_db:
+        finder = AssetFinder(assets_db)
+
+        case = partial(Case, finder)
+
+        equities = finder.retrieve_all(range(5))
+        dupe_old, dupe_new, unique, dupe_us, dupe_ca = equities
+
         fof14 = finder.retrieve_asset(fof14_sid)
         cf = finder.create_continuous_future(
             root_symbol=fof14.root_symbol,
@@ -176,65 +210,94 @@ def build_lookup_generic_cases(asset_finder_type):
             adjustment=None,
         )
 
-        dupe_0_start = dupe_0.start_date
-        dupe_1_start = dupe_1.start_date
-        yield (
-            ##
-            # Scalars
+        all_assets = list(equities) + [fof14, cf]
 
-            # Asset object
-            (finder, assets[0], None, assets[0]),
-            (finder, assets[1], None, assets[1]),
-            (finder, assets[2], None, assets[2]),
-            # int
-            (finder, 0, None, assets[0]),
-            (finder, 1, None, assets[1]),
-            (finder, 2, None, assets[2]),
-            # Duplicated symbol with resolution date
-            (finder, 'DUPLICATED', dupe_0_start, dupe_0),
-            (finder, 'DUPLICATED', dupe_1_start, dupe_1),
-            # Unique symbol, with or without resolution date.
-            (finder, 'UNIQUE', unique_start, unique),
-            (finder, 'UNIQUE', None, unique),
+        for asset in list(equities) + [fof14, cf]:
+            # Looking up an asset object directly should yield itself.
+            yield case(asset, None, None, asset)
+            # Looking up an asset by sid should yield the asset.
+            yield case(asset.sid, None, None, asset)
 
-            # Futures
-            (finder, 'FOF14', None, fof14),
-            # Future symbols should be unique, but including as_of date
-            # make sure that code path is exercised.
-            (finder, 'FOF14', unique_start, fof14),
+        # Duplicated US equity symbol with resolution date.
+        for country in ('US', None):
+            # On or before dupe_new_start, we should get dupe_old.
+            yield case('DUPLICATED_IN_US', dupe_old_start, country, dupe_old)
+            yield case(
+                'DUPLICATED_IN_US', dupe_new_start - minute, country, dupe_old,
+            )
+            # After that, we should get dupe_new.
+            yield case('DUPLICATED_IN_US', dupe_new_start, country, dupe_new)
+            yield case(
+                'DUPLICATED_IN_US', dupe_new_start + minute, country, dupe_new,
+            )
 
-            # Futures int
-            (finder, fof14_sid, None, fof14),
-            # Future symbols should be unique, but including as_of date
-            # make sure that code path is exercised.
-            (finder, fof14_sid, unique_start, fof14),
+        # Unique symbol, disambiguated by country, with or without resolution
+        # date.
+        for asset, country in ((dupe_us, 'US'),
+                               (dupe_ca, 'CA')):
+            yield case('DUPLICATED_GLOBALLY', unique_start, country, asset)
+            yield case('DUPLICATED_GLOBALLY', None, country, asset)
 
-            # ContinuousFuture
-            (finder, cf, None, cf),
+        # Future symbols should be unique, but including as_of date
+        # make sure that code path is exercised.
+        yield case('FOF14', None, None, fof14)
+        yield case('FOF14', unique_start, None, fof14)
 
-            ##
-            # Iterables
+        ##
+        # Iterables
+        # Iterables of Asset objects.
+        yield case(all_assets, None, None, all_assets)
+        yield case(iter(all_assets), None, None, all_assets)
 
-            # Iterables of Asset objects.
-            (finder, assets, None, assets),
-            (finder, iter(assets), None, assets),
-            # Iterables of ints
-            (finder, (0, 1), None, assets[:-1]),
-            (finder, iter((0, 1)), None, assets[:-1]),
-            # Iterables of symbols.
-            (finder, ('DUPLICATED', 'UNIQUE'), dupe_0_start, [dupe_0, unique]),
-            (finder, ('DUPLICATED', 'UNIQUE'), dupe_1_start, [dupe_1, unique]),
-            # Mixed types
-            (finder,
-             ('DUPLICATED', 2, 'UNIQUE', 1, dupe_1),
-             dupe_0_start,
-             [dupe_0, assets[2], unique, assets[1], dupe_1]),
+        # Iterables of ints
+        yield case((0, 1), None, None, equities[:2])
+        yield case(iter((0, 1)), None, None, equities[:2])
 
-            # Futures and Equities
-            (finder, ['FOF14', 0], None, [fof14, assets[0]]),
+        # Iterables of symbols.
+        yield case(
+            inputs=('DUPLICATED_IN_US', 'UNIQUE', 'DUPLICATED_GLOBALLY'),
+            as_of=dupe_old_start,
+            country_code='US',
+            expected=[dupe_old, unique, dupe_us],
+        )
+        yield case(
+            inputs=['DUPLICATED_GLOBALLY'],
+            as_of=dupe_new_start,
+            country_code='CA',
+            expected=[dupe_ca],
+        )
 
-            # ContinuousFuture and Equity
-            (finder, [cf, 0], None, [cf, assets[0]]),
+        # Mixed types
+        yield case(
+            inputs=(
+                'DUPLICATED_IN_US',     # dupe_old b/c of as_of
+                dupe_new,               # dupe_new
+                2,                      # unique
+                'UNIQUE',               # unique
+                'DUPLICATED_GLOBALLY',  # dupe_us b/c of country_code
+                dupe_ca,                # dupe_ca
+            ),
+            as_of=dupe_old_start,
+            country_code='US',
+            expected=[dupe_old, dupe_new, unique, unique, dupe_us, dupe_ca],
+        )
+
+        # Futures and Equities
+        yield case(['FOF14', 0], None, None, [fof14, equities[0]])
+        yield case(
+            inputs=['FOF14', 'DUPLICATED_IN_US', 'DUPLICATED_GLOBALLY'],
+            as_of=dupe_new_start,
+            country_code='US',
+            expected=[fof14, dupe_new, dupe_us],
+        )
+
+        # ContinuousFuture and Equity
+        yield case([cf, 0], None, None, [cf, equities[0]])
+        yield case(
+            [cf, 'DUPLICATED_IN_US', 'DUPLICATED_GLOBALLY'],
+            as_of=dupe_new_start,
+            country_code='US',
+            expected=[cf, dupe_new, dupe_us],
         )
 
 
@@ -761,12 +824,16 @@ class AssetFinderTestCase(WithTradingCalendars, ZiplineTestCase):
         """
         Ensure that lookup_generic works with various permutations of inputs.
         """
-        with build_lookup_generic_cases(self.asset_finder_type) as cases:
-            for finder, symbols, reference_date, expected in cases:
-                results, missing = finder.lookup_generic(symbols,
-                                                         reference_date)
-                self.assertEqual(results, expected)
-                self.assertEqual(missing, [])
+        cases = build_lookup_generic_cases()
+        # Make sure we clean up temp resources in the generator if we don't
+        # consume the whole thing because of a failure.
+        self.add_instance_callback(cases.close)
+        for finder, inputs, reference_date, country, expected in cases:
+            results, missing = finder.lookup_generic(
+                inputs, reference_date, country,
+            )
+            self.assertEqual(results, expected)
+            self.assertEqual(missing, [])
 
     def test_lookup_none_raises(self):
         """
@@ -897,6 +964,7 @@ class AssetFinderTestCase(WithTradingCalendars, ZiplineTestCase):
         results, missing = finder.lookup_generic(
             ['REAL', 1, 'FAKE', 'REAL_BUT_OLD', 'REAL_BUT_IN_THE_FUTURE'],
             pd.Timestamp('2013-02-01', tz='UTC'),
+            country_code=None,
         )
 
         self.assertEqual(len(results), 3)
@@ -910,6 +978,55 @@ class AssetFinderTestCase(WithTradingCalendars, ZiplineTestCase):
         self.assertEqual(len(missing), 2)
         self.assertEqual(missing[0], 'FAKE')
         self.assertEqual(missing[1], 'REAL_BUT_IN_THE_FUTURE')
+
+    def test_lookup_generic_multiple_symbols_across_countries(self):
+        data = pd.DataFrame.from_records(
+            [
+                {
+                    'sid': 0,
+                    'symbol': 'real',
+                    'start_date': pd.Timestamp('2013-1-1', tz='UTC'),
+                    'end_date': pd.Timestamp('2014-1-1', tz='UTC'),
+                    'exchange': 'US_EXCHANGE',
+                },
+                {
+                    'sid': 1,
+                    'symbol': 'real',
+                    'start_date': pd.Timestamp('2013-1-1', tz='UTC'),
+                    'end_date': pd.Timestamp('2014-1-1', tz='UTC'),
+                    'exchange': 'CA_EXCHANGE',
+                },
+            ]
+        )
+        exchanges = pd.DataFrame.from_records([
+            {'exchange': 'US_EXCHANGE', 'country_code': 'US'},
+            {'exchange': 'CA_EXCHANGE', 'country_code': 'CA'},
+        ])
+
+        self.write_assets(equities=data, exchanges=exchanges)
+
+        with self.assertRaises(MultipleSymbolsFound):
+            self.asset_finder.lookup_generic(
+                'real',
+                as_of_date=pd.Timestamp('2014-1-1', tz='UTC'),
+                country_code=None,
+            )
+
+        matches, missing = self.asset_finder.lookup_generic(
+            'real',
+            as_of_date=pd.Timestamp('2014-1-1', tz='UTC'),
+            country_code='US',
+        )
+        self.assertEqual([matches], [self.asset_finder.retrieve_asset(0)])
+        self.assertEqual(missing, [])
+
+        matches, missing = self.asset_finder.lookup_generic(
+            'real',
+            as_of_date=pd.Timestamp('2014-1-1', tz='UTC'),
+            country_code='CA',
+        )
+        self.assertEqual([matches], [self.asset_finder.retrieve_asset(1)])
+        self.assertEqual(missing, [])
 
     def test_security_dates_warning(self):
 
@@ -930,28 +1047,6 @@ class AssetFinderTestCase(WithTradingCalendars, ZiplineTestCase):
             for warning in w:
                 self.assertTrue(issubclass(warning.category,
                                            DeprecationWarning))
-
-    def test_map_identifier_index_to_sids(self):
-        # Build an empty finder and some Assets
-        dt = pd.Timestamp('2014-01-01', tz='UTC')
-        finder = self.asset_finder
-        exchange_info = ExchangeInfo("TEST FULL", "TEST", "??")
-        asset1 = Equity(1, symbol="AAPL", exchange_info=exchange_info)
-        asset2 = Equity(2, symbol="GOOG", exchange_info=exchange_info)
-        asset200 = Future(200, symbol="CLK15", exchange_info=exchange_info)
-        asset201 = Future(201, symbol="CLM15", exchange_info=exchange_info)
-
-        # Check for correct mapping and types
-        pre_map = [asset1, asset2, asset200, asset201]
-        post_map = finder.map_identifier_index_to_sids(pre_map, dt)
-        self.assertListEqual([1, 2, 200, 201], post_map)
-        for sid in post_map:
-            self.assertIsInstance(sid, integer_types)
-
-        # Change order and check mapping again
-        pre_map = [asset201, asset2, asset200, asset1]
-        post_map = finder.map_identifier_index_to_sids(pre_map, dt)
-        self.assertListEqual([201, 2, 200, 1], post_map)
 
     def test_compute_lifetimes(self):
         assets_per_exchange = 4

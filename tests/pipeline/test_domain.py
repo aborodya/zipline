@@ -1,22 +1,37 @@
+from collections import namedtuple
+import datetime
 from textwrap import dedent
 
 import pandas as pd
+import pytz
 
+from zipline.country import CountryCode
 from zipline.pipeline import Pipeline
 from zipline.pipeline.data import Column, DataSet
 from zipline.pipeline.data.testing import TestingDataSet
 from zipline.pipeline.domain import (
     AmbiguousDomain,
+    BUILT_IN_DOMAINS,
+    BE_EQUITIES,
     CA_EQUITIES,
+    CH_EQUITIES,
+    DE_EQUITIES,
+    FR_EQUITIES,
+    GB_EQUITIES,
     GENERIC,
     infer_domain,
-    GB_EQUITIES,
+    JP_EQUITIES,
+    NL_EQUITIES,
+    PT_EQUITIES,
     US_EQUITIES,
+    EquityCalendarDomain,
+    EquitySessionDomain,
 )
 from zipline.pipeline.factors import CustomFactor
 import zipline.testing.fixtures as zf
 from zipline.testing.core import parameter_space, powerset
 from zipline.testing.predicates import assert_equal, assert_messages_equal
+from zipline.utils.pandas_utils import days_at_time
 
 
 class Sum(CustomFactor):
@@ -69,7 +84,7 @@ class MixedGenericsTestCase(zf.WithSeededRandomPipelineEngine,
 
 class SpecializeTestCase(zf.ZiplineTestCase):
 
-    @parameter_space(domain=[US_EQUITIES, CA_EQUITIES, GB_EQUITIES])
+    @parameter_space(domain=BUILT_IN_DOMAINS)
     def test_specialize(self, domain):
         class MyData(DataSet):
             col1 = Column(dtype=float)
@@ -115,7 +130,7 @@ class SpecializeTestCase(zf.ZiplineTestCase):
         do_checks(MyData, ['col1', 'col2', 'col3'])
         do_checks(MyDataSubclass, ['col1', 'col2', 'col3', 'col4'])
 
-    @parameter_space(domain=[US_EQUITIES, CA_EQUITIES, GB_EQUITIES])
+    @parameter_space(domain=BUILT_IN_DOMAINS)
     def test_unspecialize(self, domain):
 
         class MyData(DataSet):
@@ -147,7 +162,7 @@ class SpecializeTestCase(zf.ZiplineTestCase):
         do_checks(MyData, ['col1', 'col2', 'col3'])
         do_checks(MyDataSubclass, ['col1', 'col2', 'col3', 'col4'])
 
-    @parameter_space(domain_param=[US_EQUITIES, CA_EQUITIES])
+    @parameter_space(domain_param=[BE_EQUITIES, CA_EQUITIES, CH_EQUITIES])
     def test_specialized_root(self, domain_param):
         different_domain = GB_EQUITIES
 
@@ -272,12 +287,171 @@ class InferDomainTestCase(zf.ZiplineTestCase):
 
     def test_ambiguous_domain_repr(self):
         err = AmbiguousDomain([CA_EQUITIES, GB_EQUITIES, US_EQUITIES])
+
         result = str(err)
         expected = dedent(
             """\
             Found terms with conflicting domains:
-              - EquityCalendarDomain('CA', 'TSX')
-              - EquityCalendarDomain('GB', 'LSE')
-              - EquityCalendarDomain('US', 'NYSE')"""
+              - EquityCalendarDomain('CA', 'XTSE')
+              - EquityCalendarDomain('GB', 'XLON')
+              - EquityCalendarDomain('US', 'XNYS')"""
         )
         assert_messages_equal(result, expected)
+
+
+class DataQueryCutoffForSessionTestCase(zf.ZiplineTestCase):
+    def test_generic(self):
+        sessions = pd.date_range('2014-01-01', '2014-06-01')
+        with self.assertRaises(NotImplementedError):
+            GENERIC.data_query_cutoff_for_sessions(sessions)
+
+    def _test_equity_calendar_domain(self,
+                                     domain,
+                                     expected_cutoff_time,
+                                     expected_cutoff_date_offset=0):
+        sessions = pd.DatetimeIndex(domain.calendar.all_sessions[:50])
+
+        expected = days_at_time(
+            sessions,
+            expected_cutoff_time,
+            domain.calendar.tz,
+            expected_cutoff_date_offset,
+        )
+        actual = domain.data_query_cutoff_for_sessions(sessions)
+
+        assert_equal(actual, expected, check_names=False)
+
+    def test_built_in_equity_calendar_domain_defaults(self):
+        # test the defaults
+        expected_cutoff_times = {
+            BE_EQUITIES: datetime.time(8, 15),
+            CA_EQUITIES: datetime.time(8, 45),
+            CH_EQUITIES: datetime.time(8, 15),
+            DE_EQUITIES: datetime.time(8, 15),
+            FR_EQUITIES: datetime.time(8, 15),
+            GB_EQUITIES: datetime.time(7, 15),
+            JP_EQUITIES: datetime.time(8, 15),
+            NL_EQUITIES: datetime.time(8, 15),
+            PT_EQUITIES: datetime.time(7, 15),
+            US_EQUITIES: datetime.time(8, 45),
+        }
+
+        # make sure we are not missing any domains in this test
+        self.assertEqual(set(expected_cutoff_times), set(BUILT_IN_DOMAINS))
+
+        for domain, expected_cutoff_time in expected_cutoff_times.items():
+            self._test_equity_calendar_domain(domain, expected_cutoff_time)
+
+    def test_equity_calendar_domain(self):
+        # test non-default time
+        self._test_equity_calendar_domain(
+            EquityCalendarDomain(
+                CountryCode.UNITED_STATES,
+                'XNYS',
+                data_query_offset=-datetime.timedelta(hours=2, minutes=30),
+            ),
+            datetime.time(7, 0),
+        )
+
+        # test offset that changes the date
+        self._test_equity_calendar_domain(
+            EquityCalendarDomain(
+                CountryCode.UNITED_STATES,
+                'XNYS',
+                data_query_offset=-datetime.timedelta(hours=10),
+            ),
+            datetime.time(23, 30),
+            expected_cutoff_date_offset=-1,
+        )
+
+        # test an offset that moves us back by more than one day
+        self._test_equity_calendar_domain(
+            EquityCalendarDomain(
+                CountryCode.UNITED_STATES,
+                'XNYS',
+                data_query_offset=-datetime.timedelta(hours=24 * 6 + 10),
+            ),
+            datetime.time(23, 30),
+            expected_cutoff_date_offset=-7,
+        )
+
+    @parameter_space(domain=BUILT_IN_DOMAINS)
+    def test_equity_calendar_not_aligned(self, domain):
+        valid_sessions = domain.all_sessions()[:50]
+        sessions = pd.date_range(valid_sessions[0], valid_sessions[-1])
+        invalid_sessions = sessions[~sessions.isin(valid_sessions)]
+        self.assertGreater(
+            len(invalid_sessions),
+            1,
+            msg='There must be at least one invalid session.',
+        )
+
+        with self.assertRaises(ValueError) as e:
+            domain.data_query_cutoff_for_sessions(sessions)
+
+        expected_msg = (
+            'cannot resolve data query time for sessions that are not on the'
+            ' %s calendar:\n%s'
+        ) % (domain.calendar.name, invalid_sessions)
+        assert_messages_equal(str(e.exception), expected_msg)
+
+    Case = namedtuple('Case', 'time date_offset expected_timedelta')
+
+    @parameter_space(parameters=(
+        Case(
+            time=datetime.time(8, 45, tzinfo=pytz.utc),
+            date_offset=0,
+            expected_timedelta=datetime.timedelta(hours=8, minutes=45),
+        ),
+        Case(
+            time=datetime.time(5, 0, tzinfo=pytz.utc),
+            date_offset=0,
+            expected_timedelta=datetime.timedelta(hours=5),
+        ),
+        Case(
+            time=datetime.time(8, 45, tzinfo=pytz.timezone('Asia/Tokyo')),
+            date_offset=0,
+            # We should get 11:45 UTC, which is 8:45 in Tokyo time,
+            # because Tokyo is 9 hours ahead of UTC.
+            expected_timedelta=-datetime.timedelta(minutes=15)
+        ),
+        Case(
+            time=datetime.time(23, 30, tzinfo=pytz.utc),
+            date_offset=-1,
+            # 23:30 on the previous day should be equivalent to rolling back by
+            # 30 minutes.
+            expected_timedelta=-datetime.timedelta(minutes=30),
+        ),
+        Case(
+            time=datetime.time(23, 30, tzinfo=pytz.timezone('US/Eastern')),
+            date_offset=-1,
+            # 23:30 on the previous day in US/Eastern is equivalent to rolling
+            # back 24 hours (to the previous day), then rolling forward 4 or 5
+            # hours depending on daylight savings, then rolling forward 23:30,
+            # so the net is:
+            # -24 + 5 + 23:30 = 4:30 until April 4th
+            # -24 + 4 + 23:30 = 3:30 from April 4th on.
+            expected_timedelta=pd.TimedeltaIndex(
+                ['4 hours 30 minutes'] * 93 + ['3 hours 30 minutes'] * 60,
+            )
+        )
+    ))
+    def test_equity_session_domain(self, parameters):
+        time, date_offset, expected_timedelta = parameters
+        naive_sessions = pd.date_range('2000-01-01', '2000-06-01')
+        utc_sessions = naive_sessions.tz_localize('UTC')
+
+        domain = EquitySessionDomain(
+            utc_sessions,
+            CountryCode.UNITED_STATES,
+            data_query_time=time,
+            data_query_date_offset=date_offset,
+        )
+
+        # Adding and localizing the naive_sessions here because pandas 18
+        # crashes when adding a tz-aware DatetimeIndex and a
+        # TimedeltaIndex. :sadpanda:.
+        expected = (naive_sessions + expected_timedelta).tz_localize('utc')
+        actual = domain.data_query_cutoff_for_sessions(utc_sessions)
+
+        assert_equal(expected, actual)

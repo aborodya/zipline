@@ -38,12 +38,10 @@ from toolz import (
     sliding_window,
     valmap,
 )
-from toolz.curried import operator as op
 
 from zipline.errors import (
     EquitiesNotFound,
     FutureContractsNotFound,
-    MapAssetIdentifierIndexError,
     MultipleSymbolsFound,
     MultipleValuesFoundForField,
     MultipleValuesFoundForSid,
@@ -359,6 +357,10 @@ class AssetFinder(object):
             group_key=lambda row: sid_to_country_code[row.sid],
         )
 
+    @lazyval
+    def country_codes(self):
+        return tuple(self.symbol_ownership_maps_by_country_code)
+
     @staticmethod
     def _fuzzify_symbol_ownership_map(ownership_map):
         fuzzy_mappings = {}
@@ -617,19 +619,30 @@ class AssetFinder(object):
         row per group which gives us the most recently active symbol for all
         of the sids.
         """
-        symbol_cols = self.equity_symbol_mappings.c
-        inner = sa.select(
-            (symbol_cols.sid,) +
-            tuple(map(
-                op.getitem(symbol_cols),
-                symbol_columns,
-            )),
+        cols = self.equity_symbol_mappings.c
+
+        # These are the columns we actually want.
+        data_cols = (cols.sid,) + tuple(cols[name] for name in symbol_columns)
+
+        # Also select the max of end_date so that all non-grouped fields take
+        # on the value associated with the max end_date. The SQLite docs say
+        # this:
+        #
+        # When the min() or max() aggregate functions are used in an aggregate
+        # query, all bare columns in the result set take values from the input
+        # row which also contains the minimum or maximum. Only the built-in
+        # min() and max() functions work this way.
+        #
+        # See https://www.sqlite.org/lang_select.html#resultset, for more info.
+        to_select = data_cols + (sa.func.max(cols.end_date),)
+
+        return sa.select(
+            to_select,
         ).where(
-            symbol_cols.sid.in_(map(int, sid_group)),
-        ).order_by(
-            symbol_cols.end_date.asc(),
+            cols.sid.in_(map(int, sid_group))
+        ).group_by(
+            cols.sid,
         )
-        return sa.select(inner.c).group_by(inner.c.sid)
 
     def _lookup_most_recent_symbols(self, sids):
         return {
@@ -1264,27 +1277,10 @@ class AssetFinder(object):
     )
     del _make_sids
 
-    @lazyval
-    def _symbol_lookups(self):
-        """
-        An iterable of symbol lookup functions to use with ``lookup_generic``
-
-        Attempts equities lookup, then futures.
-        """
-        return (
-            self.lookup_symbol,
-            # lookup_future_symbol method does not use as_of date, since
-            # symbols are unique.
-            #
-            # Wrap the function in a lambda so that both methods share a
-            # signature, so that when the functions are iterated over
-            # the consumer can use the same arguments with both methods.
-            lambda symbol, _: self.lookup_future_symbol(symbol)
-        )
-
     def _lookup_generic_scalar(self,
-                               asset_convertible,
+                               obj,
                                as_of_date,
+                               country_code,
                                matches,
                                missing):
         """
@@ -1293,75 +1289,95 @@ class AssetFinder(object):
         On success, append to matches.
         On failure, append to missing.
         """
-        if isinstance(asset_convertible, Asset):
-            matches.append(asset_convertible)
-
-        elif isinstance(asset_convertible, Integral):
-            try:
-                result = self.retrieve_asset(int(asset_convertible))
-            except SidsNotFound:
-                missing.append(asset_convertible)
-                return None
+        result = self._lookup_generic_scalar_helper(
+            obj, as_of_date, country_code,
+        )
+        if result is not None:
             matches.append(result)
-
-        elif isinstance(asset_convertible, string_types):
-            for lookup in self._symbol_lookups:
-                try:
-                    matches.append(lookup(asset_convertible, as_of_date))
-                    return
-                except SymbolNotFound:
-                    continue
-            else:
-                missing.append(asset_convertible)
-                return None
         else:
-            raise NotAssetConvertible(
-                "Input was %s, not AssetConvertible."
-                % asset_convertible
-            )
+            missing.append(obj)
 
-    def lookup_generic(self,
-                       asset_convertible_or_iterable,
-                       as_of_date):
+    def _lookup_generic_scalar_helper(self, obj, as_of_date, country_code):
+
+        if isinstance(obj, (Asset, ContinuousFuture)):
+            return obj
+
+        if isinstance(obj, Integral):
+            try:
+                return self.retrieve_asset(int(obj))
+            except SidsNotFound:
+                return None
+
+        if isinstance(obj, string_types):
+            # Try to look up as an equity first.
+            try:
+                return self.lookup_symbol(
+                    symbol=obj,
+                    as_of_date=as_of_date,
+                    country_code=country_code
+                )
+            except SymbolNotFound:
+                # Fall back to lookup as a Future
+                try:
+                    # TODO: Support country_code for future_symbols?
+                    return self.lookup_future_symbol(obj)
+                except SymbolNotFound:
+                    return None
+
+        raise NotAssetConvertible("Input was %s, not AssetConvertible." % obj)
+
+    def lookup_generic(self, obj, as_of_date, country_code):
         """
-        Convert a AssetConvertible or iterable of AssetConvertibles into
-        a list of Asset objects.
+        Convert an object into an Asset or sequence of Assets.
 
         This method exists primarily as a convenience for implementing
         user-facing APIs that can handle multiple kinds of input.  It should
         not be used for internal code where we already know the expected types
         of our inputs.
 
-        Returns a pair of objects, the first of which is the result of the
-        conversion, and the second of which is a list containing any values
-        that couldn't be resolved.
+        Parameters
+        ----------
+        obj : int, str, Asset, ContinuousFuture, or iterable
+            The object to be converted into one or more Assets.
+            Integers are interpreted as sids. Strings are interpreted as
+            tickers. Assets and ContinuousFutures are returned unchanged.
+        as_of_date : pd.Timestamp or None
+            Timestamp to use to disambiguate ticker lookups. Has the same
+            semantics as in `lookup_symbol`.
+        country_code : str or None
+            ISO-3166 country code to use to disambiguate ticker lookups. Has
+            the same semantics as in `lookup_symbol`.
+
+        Returns
+        -------
+        matches, missing : tuple
+            ``matches`` is the result of the conversion. ``missing`` is a list
+             containing any values that couldn't be resolved. If ``obj`` is not
+             an iterable, ``missing`` will be an empty list.
         """
         matches = []
         missing = []
 
         # Interpret input as scalar.
-        if isinstance(asset_convertible_or_iterable, AssetConvertible):
+        if isinstance(obj, (AssetConvertible, ContinuousFuture)):
             self._lookup_generic_scalar(
-                asset_convertible=asset_convertible_or_iterable,
+                obj=obj,
                 as_of_date=as_of_date,
+                country_code=country_code,
                 matches=matches,
                 missing=missing,
             )
             try:
                 return matches[0], missing
             except IndexError:
-                if hasattr(asset_convertible_or_iterable, '__int__'):
-                    raise SidsNotFound(sids=[asset_convertible_or_iterable])
+                if hasattr(obj, '__int__'):
+                    raise SidsNotFound(sids=[obj])
                 else:
-                    raise SymbolNotFound(symbol=asset_convertible_or_iterable)
-
-        # If the input is a ContinuousFuture just return it as-is.
-        elif isinstance(asset_convertible_or_iterable, ContinuousFuture):
-            return asset_convertible_or_iterable, missing
+                    raise SymbolNotFound(symbol=obj)
 
         # Interpret input as iterable.
         try:
-            iterator = iter(asset_convertible_or_iterable)
+            iterator = iter(obj)
         except TypeError:
             raise NotAssetConvertible(
                 "Input was not a AssetConvertible "
@@ -1369,57 +1385,15 @@ class AssetFinder(object):
             )
 
         for obj in iterator:
-            if isinstance(obj, ContinuousFuture):
-                matches.append(obj)
-            else:
-                self._lookup_generic_scalar(obj, as_of_date, matches, missing)
+            self._lookup_generic_scalar(
+                obj=obj,
+                as_of_date=as_of_date,
+                country_code=country_code,
+                matches=matches,
+                missing=missing,
+            )
+
         return matches, missing
-
-    def map_identifier_index_to_sids(self, index, as_of_date):
-        """
-        This method is for use in sanitizing a user's DataFrame or Panel
-        inputs.
-
-        Takes the given index of identifiers, checks their types, builds assets
-        if necessary, and returns a list of the sids that correspond to the
-        input index.
-
-        Parameters
-        ----------
-        index : Iterable
-            An iterable containing ints, strings, or Assets
-        as_of_date : pandas.Timestamp
-            A date to be used to resolve any dual-mapped symbols
-
-        Returns
-        -------
-        List
-            A list of integer sids corresponding to the input index
-        """
-        # This method assumes that the type of the objects in the index is
-        # consistent and can, therefore, be taken from the first identifier
-        first_identifier = index[0]
-
-        # Ensure that input is AssetConvertible (integer, string, or Asset)
-        if not isinstance(first_identifier, AssetConvertible):
-            raise MapAssetIdentifierIndexError(obj=first_identifier)
-
-        # If sids are provided, no mapping is necessary
-        if isinstance(first_identifier, Integral):
-            return index
-
-        # Look up all Assets for mapping
-        matches = []
-        missing = []
-        for identifier in index:
-            self._lookup_generic_scalar(identifier, as_of_date,
-                                        matches, missing)
-
-        if missing:
-            raise ValueError("Missing assets for identifiers: %s" % missing)
-
-        # Return a list of the sids of the found assets
-        return [asset.sid for asset in matches]
 
     def _compute_asset_lifetimes(self, country_codes):
         """
@@ -1520,6 +1494,22 @@ class AssetFinder(object):
         mask &= (raw_dates <= lifetimes.end)
 
         return pd.DataFrame(mask, index=dates, columns=lifetimes.sid)
+
+    def equities_sids_for_country_code(self, country_code):
+        """Return all of the sids for a given country.
+
+        Parameters
+        ----------
+        country_code : str
+            An ISO 3166 alpha-2 country code.
+
+        Returns
+        -------
+        tuple[int]
+            The sids whose exchanges are in this country.
+        """
+        sids = self._compute_asset_lifetimes([country_code]).sid
+        return tuple(sids.tolist())
 
 
 class AssetConvertible(with_metaclass(ABCMeta)):
