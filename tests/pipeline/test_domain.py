@@ -11,21 +11,36 @@ from zipline.pipeline.data import Column, DataSet
 from zipline.pipeline.data.testing import TestingDataSet
 from zipline.pipeline.domain import (
     AmbiguousDomain,
-    BUILT_IN_DOMAINS,
+    AT_EQUITIES,
+    AU_EQUITIES,
     BE_EQUITIES,
+    BR_EQUITIES,
+    BUILT_IN_DOMAINS,
     CA_EQUITIES,
+    CN_EQUITIES,
     CH_EQUITIES,
     DE_EQUITIES,
+    DK_EQUITIES,
+    EquityCalendarDomain,
+    EquitySessionDomain,
+    ES_EQUITIES,
+    FI_EQUITIES,
     FR_EQUITIES,
     GB_EQUITIES,
     GENERIC,
+    HK_EQUITIES,
+    IE_EQUITIES,
+    IN_EQUITIES,
     infer_domain,
+    IT_EQUITIES,
     JP_EQUITIES,
     NL_EQUITIES,
+    NO_EQUITIES,
+    NZ_EQUITIES,
     PT_EQUITIES,
+    SE_EQUITIES,
+    SG_EQUITIES,
     US_EQUITIES,
-    EquityCalendarDomain,
-    EquitySessionDomain,
 )
 from zipline.pipeline.factors import CustomFactor
 import zipline.testing.fixtures as zf
@@ -324,15 +339,30 @@ class DataQueryCutoffForSessionTestCase(zf.ZiplineTestCase):
     def test_built_in_equity_calendar_domain_defaults(self):
         # test the defaults
         expected_cutoff_times = {
+            AT_EQUITIES: datetime.time(8, 15),
+            AU_EQUITIES: datetime.time(9, 15),
             BE_EQUITIES: datetime.time(8, 15),
+            BR_EQUITIES: datetime.time(9, 15),
             CA_EQUITIES: datetime.time(8, 45),
             CH_EQUITIES: datetime.time(8, 15),
+            CN_EQUITIES: datetime.time(8, 45),
             DE_EQUITIES: datetime.time(8, 15),
+            DK_EQUITIES: datetime.time(8, 15),
+            ES_EQUITIES: datetime.time(8, 15),
+            FI_EQUITIES: datetime.time(9, 15),
             FR_EQUITIES: datetime.time(8, 15),
             GB_EQUITIES: datetime.time(7, 15),
+            HK_EQUITIES: datetime.time(9, 15),
+            IE_EQUITIES: datetime.time(7, 15),
+            IN_EQUITIES: datetime.time(8, 30),
+            IT_EQUITIES: datetime.time(8, 15),
             JP_EQUITIES: datetime.time(8, 15),
             NL_EQUITIES: datetime.time(8, 15),
+            NO_EQUITIES: datetime.time(8, 15),
+            NZ_EQUITIES: datetime.time(9, 15),
             PT_EQUITIES: datetime.time(7, 15),
+            SE_EQUITIES: datetime.time(8, 15),
+            SG_EQUITIES: datetime.time(8, 15),
             US_EQUITIES: datetime.time(8, 45),
         }
 
@@ -455,3 +485,81 @@ class DataQueryCutoffForSessionTestCase(zf.ZiplineTestCase):
         actual = domain.data_query_cutoff_for_sessions(utc_sessions)
 
         assert_equal(expected, actual)
+
+
+class RollForwardTestCase(zf.ZiplineTestCase):
+
+    def test_roll_forward(self):
+        #     January 2017
+        # Su Mo Tu We Th Fr Sa
+        #  1  2  3  4  5  6  7
+
+        # the first three days of the year are holidays on the Tokyo exchange,
+        # so the first trading day should be the fourth
+        self.assertEqual(
+            JP_EQUITIES.roll_forward('2017-01-01'),
+            pd.Timestamp('2017-01-04', tz='UTC'),
+        )
+
+        # in US exchanges, the first trading day after 1/1 is the 3rd
+        self.assertEqual(
+            US_EQUITIES.roll_forward('2017-01-01'),
+            pd.Timestamp('2017-01-03', tz='UTC'),
+        )
+
+        # passing a valid trading day to roll_forward should return that day
+        self.assertEqual(
+            JP_EQUITIES.roll_forward('2017-01-04'),
+            pd.Timestamp('2017-01-04', tz='UTC'),
+        )
+
+        # passing a date before the first session should return the
+        # first session
+        before_first_session = \
+            JP_EQUITIES.calendar.first_session - pd.Timedelta(days=20)
+
+        self.assertEqual(
+            JP_EQUITIES.roll_forward(before_first_session),
+            JP_EQUITIES.calendar.first_session
+        )
+
+        # requesting a session beyond the last session raises an ValueError
+        after_last_session = \
+            JP_EQUITIES.calendar.last_session + pd.Timedelta(days=20)
+
+        with self.assertRaises(ValueError) as ve:
+            JP_EQUITIES.roll_forward(after_last_session)
+
+        self.assertEqual(
+            str(ve.exception),
+            "Date {} was past the last session for domain "
+            "EquityCalendarDomain('JP', 'XTKS'). The last session for "
+            "this domain is {}.".format(
+                after_last_session.date(),
+                JP_EQUITIES.calendar.last_session.date(),
+            )
+        )
+
+        # test that a roll_forward works with an EquitySessionDomain,
+        # not just calendar domains
+        sessions = pd.DatetimeIndex(
+            ['2000-01-01',
+             '2000-02-01',
+             '2000-04-01',
+             '2000-06-01'],
+            tz='UTC'
+        )
+
+        session_domain = EquitySessionDomain(
+            sessions, CountryCode.UNITED_STATES
+        )
+
+        self.assertEqual(
+            session_domain.roll_forward('2000-02-01'),
+            pd.Timestamp('2000-02-01', tz='UTC'),
+        )
+
+        self.assertEqual(
+            session_domain.roll_forward('2000-02-02'),
+            pd.Timestamp('2000-04-01', tz='UTC'),
+        )

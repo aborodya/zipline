@@ -8,7 +8,7 @@ Logbook==0.12.5
 
 # Scientific Libraries
 
-pytz==2016.4
+pytz==2018.5
 numpy==1.11.3
 
 # for pandas-datareader
@@ -82,7 +82,7 @@ empyrical==0.5.0
 tables==3.4.3
 
 # For trading calendars
-trading-calendars==1.2.0
+trading-calendars==1.5.1
 
 # Interface definitions.
 python-interface==1.4.0

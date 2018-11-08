@@ -17,7 +17,7 @@ Currently, this means that a domain defines two things:
 import datetime
 from textwrap import dedent
 
-from interface import implements, Interface
+from interface import default, implements, Interface
 import pandas as pd
 import pytz
 
@@ -70,6 +70,34 @@ class IDomain(Interface):
             Timestamp of the last minute for which data should be considered
             "available" on each session.
         """
+
+    @default
+    def roll_forward(self, dt):
+        """
+        Given a date, align it to the calendar of the pipeline's domain.
+
+        Parameters
+        ----------
+        dt : pd.Timestamp
+
+        Returns
+        -------
+        pd.Timestamp
+        """
+        dt = pd.Timestamp(dt, tz='UTC')
+
+        trading_days = self.all_sessions()
+        try:
+            return trading_days[trading_days.searchsorted(dt)]
+        except IndexError:
+            raise ValueError(
+                "Date {} was past the last session for domain {}. "
+                "The last session for this domain is {}.".format(
+                    dt.date(),
+                    self,
+                    trading_days[-1].date()
+                )
+            )
 
 
 Domain = implements(IDomain)
@@ -184,27 +212,57 @@ class EquityCalendarDomain(Domain):
         )
 
 
+AT_EQUITIES = EquityCalendarDomain(CountryCode.AUSTRIA, 'XWBO')
+AU_EQUITIES = EquityCalendarDomain(CountryCode.AUSTRALIA, 'XASX')
 BE_EQUITIES = EquityCalendarDomain(CountryCode.BELGIUM, 'XBRU')
+BR_EQUITIES = EquityCalendarDomain(CountryCode.BRAZIL, 'BVMF')
 CA_EQUITIES = EquityCalendarDomain(CountryCode.CANADA, 'XTSE')
 CH_EQUITIES = EquityCalendarDomain(CountryCode.SWITZERLAND, 'XSWX')
+CN_EQUITIES = EquityCalendarDomain(CountryCode.CHINA, 'XSHG')
 DE_EQUITIES = EquityCalendarDomain(CountryCode.GERMANY, 'XFRA')
+DK_EQUITIES = EquityCalendarDomain(CountryCode.DENMARK, 'XCSE')
+ES_EQUITIES = EquityCalendarDomain(CountryCode.SPAIN, 'XMAD')
+FI_EQUITIES = EquityCalendarDomain(CountryCode.FINLAND, 'XHEL')
 FR_EQUITIES = EquityCalendarDomain(CountryCode.FRANCE, 'XPAR')
 GB_EQUITIES = EquityCalendarDomain(CountryCode.UNITED_KINGDOM, 'XLON')
+HK_EQUITIES = EquityCalendarDomain(CountryCode.HONG_KONG, 'XHKG')
+IE_EQUITIES = EquityCalendarDomain(CountryCode.IRELAND, 'XDUB')
+IN_EQUITIES = EquityCalendarDomain(CountryCode.INDIA, "XBOM")
+IT_EQUITIES = EquityCalendarDomain(CountryCode.ITALY, 'XMIL')
 JP_EQUITIES = EquityCalendarDomain(CountryCode.JAPAN, 'XTKS')
 NL_EQUITIES = EquityCalendarDomain(CountryCode.NETHERLANDS, 'XAMS')
+NO_EQUITIES = EquityCalendarDomain(CountryCode.NORWAY, 'XOSL')
+NZ_EQUITIES = EquityCalendarDomain(CountryCode.NEW_ZEALAND, 'XNZE')
 PT_EQUITIES = EquityCalendarDomain(CountryCode.PORTUGAL, 'XLIS')
+SE_EQUITIES = EquityCalendarDomain(CountryCode.SWEDEN, 'XSTO')
+SG_EQUITIES = EquityCalendarDomain(CountryCode.SINGAPORE, 'XSES')
 US_EQUITIES = EquityCalendarDomain(CountryCode.UNITED_STATES, 'XNYS')
 
 BUILT_IN_DOMAINS = [
+    AT_EQUITIES,
+    AU_EQUITIES,
     BE_EQUITIES,
+    BR_EQUITIES,
     CA_EQUITIES,
     CH_EQUITIES,
+    CN_EQUITIES,
     DE_EQUITIES,
+    DK_EQUITIES,
+    ES_EQUITIES,
+    FI_EQUITIES,
     FR_EQUITIES,
     GB_EQUITIES,
+    HK_EQUITIES,
+    IE_EQUITIES,
+    IN_EQUITIES,
+    IT_EQUITIES,
     JP_EQUITIES,
     NL_EQUITIES,
+    NO_EQUITIES,
+    NZ_EQUITIES,
     PT_EQUITIES,
+    SE_EQUITIES,
+    SG_EQUITIES,
     US_EQUITIES,
 ]
 
