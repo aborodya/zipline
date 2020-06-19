@@ -1,8 +1,8 @@
 {% set name = "trading-calendars" %}
-{% set version = "1.6.1" %}
+{% set version = "1.11.2" %}
 {% set file_ext = "tar.gz" %}
 {% set hash_type = "sha256" %}
-{% set hash_value = "1420def27cbbbbc8328349e499b0fbf5689f4b544f4b7ef53c9c2d3ebfab47ca" %}
+{% set hash_value = "76ec1d28f27f769969ae532942025d319a6acee4d1e664651e3f4a07440ce185" %}
 
 package:
   name: '{{ name|lower }}'
@@ -39,7 +39,6 @@ requirements:
 
 test:
   imports:
-    - tests
     - trading_calendars
     - trading_calendars.utils
 
