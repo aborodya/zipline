@@ -19,7 +19,6 @@ from datetime import tzinfo, time
 import logbook
 import pytz
 import pandas as pd
-from contextlib2 import ExitStack
 import numpy as np
 
 from itertools import chain, repeat
@@ -95,6 +94,7 @@ from zipline.utils.api_support import (
     require_not_initialized,
     ZiplineAPI,
     disallowed_in_before_trading_start)
+from zipline.utils.compat import ExitStack
 from zipline.utils.input_validation import (
     coerce_string,
     ensure_upper_case,
@@ -490,7 +490,7 @@ class TradingAlgorithm(object):
         """
         If the clock property is not set, then create one based on frequency.
         """
-        trading_o_and_c = self.trading_calendar.schedule.ix[
+        trading_o_and_c = self.trading_calendar.schedule.loc[
             self.sim_params.sessions]
         market_closes = trading_o_and_c['market_close']
         minutely_emission = False
