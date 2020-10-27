@@ -7,7 +7,8 @@
 =============
 
 |Gitter|
-|version status|
+|pypi version status|
+|pypi pyversion status|
 |travis status|
 |appveyor status|
 |Coverage Status|
@@ -41,7 +42,7 @@ Features
 Installation
 ============
 
-Zipline currently supports Python 2.7 and Python 3.5, and may be installed via
+Zipline currently supports Python 2.7, 3.5, and 3.6, and may be installed via
 either pip or conda.
 
 **Note:** Installing Zipline is slightly more involved than the average Python
@@ -134,13 +135,15 @@ Feel free to ask questions on the `mailing list <https://groups.google.com/forum
 
 .. |Gitter| image:: https://badges.gitter.im/Join%20Chat.svg
    :target: https://gitter.im/quantopian/zipline?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge
-.. |version status| image:: https://img.shields.io/pypi/pyversions/zipline.svg
+.. |pypi version status| image:: https://img.shields.io/pypi/v/zipline.svg
    :target: https://pypi.python.org/pypi/zipline
-.. |travis status| image:: https://travis-ci.org/quantopian/zipline.png?branch=master
+.. |pypi pyversion status| image:: https://img.shields.io/pypi/pyversions/zipline.svg
+   :target: https://pypi.python.org/pypi/zipline
+.. |travis status| image:: https://travis-ci.org/quantopian/zipline.svg?branch=master
    :target: https://travis-ci.org/quantopian/zipline
 .. |appveyor status| image:: https://ci.appveyor.com/api/projects/status/3dg18e6227dvstw6/branch/master?svg=true
    :target: https://ci.appveyor.com/project/quantopian/zipline/branch/master
-.. |Coverage Status| image:: https://coveralls.io/repos/quantopian/zipline/badge.png
+.. |Coverage Status| image:: https://coveralls.io/repos/quantopian/zipline/badge.svg
    :target: https://coveralls.io/r/quantopian/zipline
 
 .. _`Zipline Install Documentation` : https://www.zipline.io/install
